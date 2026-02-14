@@ -9,8 +9,11 @@ import { resolveConfig, type MlxAudioConfig } from "./src/config.js";
 import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
+import { VenvManager } from "./src/venv-manager.js";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 
 interface PluginApi {
   logger: {
@@ -74,6 +77,10 @@ export default function register(api: PluginApi) {
   const cfg = resolveConfig(rawConfig);
   const logger = api.logger;
 
+  // Data dir for venv and models — ~/.openclaw/mlx-audio/
+  const dataDir = path.join(os.homedir(), ".openclaw", "mlx-audio");
+  const venvMgr = new VenvManager(dataDir, logger);
+
   const procMgr = new ProcessManager(cfg, logger);
   const proxy = new TtsProxy(cfg, logger);
   const health = new HealthChecker(cfg.port, cfg.healthCheckIntervalMs, logger, () => {
@@ -88,11 +95,15 @@ export default function register(api: PluginApi) {
   api.registerService({
     id: "mlx-audio",
     start: async () => {
+      // Auto-setup Python venv + dependencies on first run
+      const pythonBin = await venvMgr.ensure();
+      procMgr.setPythonBin(pythonBin);
+
       if (cfg.autoStart) {
         await procMgr.start();
         const healthy = await waitForServerHealthy(cfg.port);
         if (!healthy) {
-          throw new Error(`[mlx-audio] Server did not become healthy on port ${cfg.port}`);
+          logger.warn("[mlx-audio] Server not healthy after startup, continuing anyway...");
         }
       }
       await proxy.start();

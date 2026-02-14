@@ -18,12 +18,18 @@ export class ProcessManager extends EventEmitter {
   private lastError: string | null = null;
   private startedAt: number | null = null;
   private stopping = false;
+  private pythonBin: string = "python3";
 
   constructor(
     private cfg: MlxAudioConfig,
     private logger: { info: (m: string) => void; error: (m: string) => void; warn: (m: string) => void },
   ) {
     super();
+  }
+
+  /** Set the python binary path (from VenvManager). */
+  setPythonBin(bin: string): void {
+    this.pythonBin = bin;
   }
 
   async start(): Promise<void> {
@@ -84,10 +90,10 @@ export class ProcessManager extends EventEmitter {
 
   private spawn(): boolean {
     const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port)];
-    this.logger.info(`[mlx-audio] Starting: python3 ${args.join(" ")}`);
+    this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 
     try {
-      this.proc = spawn("python3", args, {
+      this.proc = spawn(this.pythonBin, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
       });
