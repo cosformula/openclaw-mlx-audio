@@ -19,7 +19,18 @@ function loadSchemaDefaults(): Record<string, unknown> {
   const here = typeof __dirname !== "undefined"
     ? __dirname
     : dirname(fileURLToPath(import.meta.url));
-  const manifestPath = resolve(here, "..", "openclaw.plugin.json");
+  // Walk up from dist/src/ or src/ to find openclaw.plugin.json at project root
+  let dir = here;
+  let manifestPath = resolve(dir, "openclaw.plugin.json");
+  for (let i = 0; i < 5; i++) {
+    try {
+      readFileSync(manifestPath);
+      break;
+    } catch {
+      dir = resolve(dir, "..");
+      manifestPath = resolve(dir, "openclaw.plugin.json");
+    }
+  }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
   const props: Record<string, { default?: unknown }> = manifest.configSchema?.properties ?? {};
   const defaults: Record<string, unknown> = {};
