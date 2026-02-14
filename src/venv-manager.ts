@@ -13,7 +13,8 @@ const REQUIRED_PACKAGES = [
   "uvicorn",
   "fastapi",
   "python-multipart",
-  "setuptools",       // for pkg_resources (webrtcvad)
+  "setuptools<81",    // for pkg_resources (webrtcvad needs it, removed in 82+)
+  "webrtcvad",
   "misaki",
   "num2words",
   "phonemizer",
@@ -37,7 +38,7 @@ interface Manifest {
   createdAt: string;
 }
 
-const MANIFEST_VERSION = 2; // Bump when deps change to force reinstall.
+const MANIFEST_VERSION = 3; // Bump when deps change to force reinstall.
 
 export class VenvManager {
   private venvDir: string;
