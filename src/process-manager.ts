@@ -1,6 +1,7 @@
 /** Manages the mlx_audio.server Python subprocess. */
 
 import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
 import type { MlxAudioConfig } from "./config.js";
@@ -181,13 +182,17 @@ export class ProcessManager extends EventEmitter {
   }
 
   private spawn(): boolean {
-    const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers)];
+    // Use a writable directory for cwd and logs (mlx_audio.server creates a logs/ dir)
+    const dataDir = resolve(process.env.HOME ?? "/tmp", ".openclaw", "mlx-audio");
+    const logDir = resolve(dataDir, "logs");
+    const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
     this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 
     try {
       this.proc = spawn(this.pythonBin, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
+        cwd: dataDir,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
