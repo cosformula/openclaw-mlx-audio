@@ -24,7 +24,8 @@
       "autoStart": { "type": "boolean", "default": true },
       "healthCheckIntervalMs": { "type": "number", "default": 30000 },
       "restartOnCrash": { "type": "boolean", "default": true },
-      "maxRestarts": { "type": "number", "default": 3 }
+      "maxRestarts": { "type": "number", "default": 3 },
+      "workers": { "type": "number", "default": 1, "description": "Number of uvicorn workers (reduce for low-memory machines)" }
     }
   },
   "uiHints": {

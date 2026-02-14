@@ -1,5 +1,41 @@
-/** MLX Audio plugin configuration. */
+/**
+ * MLX Audio plugin configuration.
+ *
+ * Single source of truth: openclaw.plugin.json → configSchema.
+ * This file derives defaults from that schema at build time (via the
+ * generated type) and provides runtime helpers.  If you add a new config
+ * field, add it to openclaw.plugin.json FIRST, then mirror here.
+ */
 
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// ---------- schema-derived types & defaults --------------------------------
+
+/** Load configSchema.properties from openclaw.plugin.json at import time. */
+function loadSchemaDefaults(): Record<string, unknown> {
+  // Works both from src/ (dev) and dist/ (built)
+  const here = typeof __dirname !== "undefined"
+    ? __dirname
+    : dirname(fileURLToPath(import.meta.url));
+  const manifestPath = resolve(here, "..", "openclaw.plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  const props: Record<string, { default?: unknown }> = manifest.configSchema?.properties ?? {};
+  const defaults: Record<string, unknown> = {};
+  for (const [key, schema] of Object.entries(props)) {
+    if (schema.default !== undefined) defaults[key] = schema.default;
+  }
+  return defaults;
+}
+
+const SCHEMA_DEFAULTS = loadSchemaDefaults();
+
+/**
+ * Runtime config interface.
+ * Keep in sync with openclaw.plugin.json → configSchema.properties.
+ * CI: `npm run check-schema` will catch drift.
+ */
 export interface MlxAudioConfig {
   port: number;
   proxyPort: number;
@@ -17,8 +53,10 @@ export interface MlxAudioConfig {
   healthCheckIntervalMs: number;
   restartOnCrash: boolean;
   maxRestarts: number;
+  workers: number;
 }
 
+/** All required keys with their schema-declared defaults. */
 const DEFAULTS: MlxAudioConfig = {
   port: 19280,
   proxyPort: 19281,
@@ -33,7 +71,12 @@ const DEFAULTS: MlxAudioConfig = {
   healthCheckIntervalMs: 30000,
   restartOnCrash: true,
   maxRestarts: 3,
-};
+  workers: 1,
+  // Override with any defaults found in the JSON schema (schema wins)
+  ...SCHEMA_DEFAULTS,
+} as MlxAudioConfig;
+
+// ---------- resolve & validate ---------------------------------------------
 
 export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudioConfig {
   const cfg = { ...DEFAULTS, ...raw };
@@ -67,6 +110,8 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
 
   return cfg;
 }
+
+// ---------- upstream params builder ----------------------------------------
 
 /** Build the extra body fields to inject into the upstream request. */
 export function buildInjectedParams(cfg: MlxAudioConfig): Record<string, unknown> {

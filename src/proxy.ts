@@ -103,6 +103,11 @@ export class TtsProxy {
       upstreamRes.pipe(res);
     });
 
+    upstream.setTimeout(600_000, () => {
+      this.logger.error("[mlx-audio] Upstream request timed out (600s)");
+      upstream.destroy(new Error("Upstream timeout"));
+    });
+
     upstream.on("error", (err) => {
       this.logger.error(`[mlx-audio] Upstream error: ${err.message}`);
       if (!res.headersSent) {
@@ -127,6 +132,11 @@ export class TtsProxy {
     const upstream = http.request(options, (upstreamRes) => {
       res.writeHead(upstreamRes.statusCode ?? 500, upstreamRes.headers);
       upstreamRes.pipe(res);
+    });
+
+    upstream.setTimeout(600_000, () => {
+      this.logger.error("[mlx-audio] Upstream request timed out (600s)");
+      upstream.destroy(new Error("Upstream timeout"));
     });
 
     upstream.on("error", (err) => {

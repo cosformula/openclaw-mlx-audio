@@ -3,16 +3,28 @@
   "version": "0.1.0",
   "description": "OpenClaw local TTS plugin powered by mlx-audio — zero API key, zero cloud dependency",
   "type": "module",
-  "main": "index.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "check-schema": "node scripts/check-schema-sync.mjs",
+    "build": "tsc && npm run check-schema",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist/**",
+    "openclaw.plugin.json",
+    "skills/**",
+    "README.md",
+    "LICENSE"
+  ],
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./dist/index.js"]
   },
   "author": "CCC Games <dev@contextcross.com>",
   "license": "MIT",
   "keywords": ["openclaw", "tts", "mlx", "apple-silicon", "local"],
   "repository": {
     "type": "git",
-    "url": "https://github.com/cosformula/mlx-audio.git"
+    "url": "https://github.com/cosformula/openclaw-mlx-audio.git"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
