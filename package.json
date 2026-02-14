@@ -13,5 +13,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/cosformula/mlx-audio.git"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
   }
 }

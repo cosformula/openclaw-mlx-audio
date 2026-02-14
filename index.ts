@@ -9,6 +9,8 @@ import { resolveConfig, type MlxAudioConfig } from "./src/config.js";
 import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
+import fs from "node:fs";
+import http from "node:http";
 
 interface PluginApi {
   logger: {
@@ -36,6 +38,37 @@ interface PluginApi {
   }) => void;
 }
 
+const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
+const STARTUP_HEALTH_INTERVAL_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pingServer(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ hostname: "127.0.0.1", port, path: "/v1/models", timeout: 5000 }, (res) => {
+      res.resume();
+      resolve(res.statusCode === 200);
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForServerHealthy(port: number): Promise<boolean> {
+  for (let attempt = 0; attempt < STARTUP_HEALTH_MAX_ATTEMPTS; attempt++) {
+    if (await pingServer(port)) return true;
+    if (attempt < STARTUP_HEALTH_MAX_ATTEMPTS - 1) {
+      await sleep(STARTUP_HEALTH_INTERVAL_MS);
+    }
+  }
+  return false;
+}
+
 export default function register(api: PluginApi) {
   const rawConfig = api.config.plugins?.entries?.["mlx-audio"]?.config as Partial<MlxAudioConfig> | undefined;
   const cfg = resolveConfig(rawConfig);
@@ -57,11 +90,15 @@ export default function register(api: PluginApi) {
     start: async () => {
       if (cfg.autoStart) {
         await procMgr.start();
-        // Wait a moment for server to bind
-        await new Promise((r) => setTimeout(r, 3000));
+        const healthy = await waitForServerHealthy(cfg.port);
+        if (!healthy) {
+          throw new Error(`[mlx-audio] Server did not become healthy on port ${cfg.port}`);
+        }
       }
       await proxy.start();
-      health.start();
+      if (cfg.autoStart) {
+        health.start();
+      }
       logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
     },
     stop: async () => {
@@ -112,9 +149,6 @@ export default function register(api: PluginApi) {
         if (!text) return { error: "text is required for generate action" };
 
         // Make request through proxy
-        const http = await import("node:http");
-        const fs = await import("node:fs");
-
         return new Promise((resolve) => {
           const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
           const req = http.request(
@@ -148,6 +182,7 @@ export default function register(api: PluginApi) {
               });
             },
           );
+          req.on("timeout", () => req.destroy(new Error("Request timed out")));
           req.on("error", (err) => resolve({ error: err.message }));
           req.write(body);
           req.end();

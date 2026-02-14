@@ -32,7 +32,10 @@ export class ProcessManager extends EventEmitter {
       return;
     }
     this.stopping = false;
-    this.spawn();
+    const ok = this.spawn();
+    if (!ok) {
+      throw new Error(this.lastError ? `[mlx-audio] Failed to start server: ${this.lastError}` : "[mlx-audio] Failed to start server");
+    }
   }
 
   async stop(): Promise<void> {
@@ -62,7 +65,6 @@ export class ProcessManager extends EventEmitter {
 
   async restart(): Promise<void> {
     await this.stop();
-    this.restarts = 0;
     await this.start();
   }
 
@@ -80,7 +82,7 @@ export class ProcessManager extends EventEmitter {
     };
   }
 
-  private spawn(): void {
+  private spawn(): boolean {
     const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port)];
     this.logger.info(`[mlx-audio] Starting: python3 ${args.join(" ")}`);
 
@@ -93,10 +95,11 @@ export class ProcessManager extends EventEmitter {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
       this.logger.error(`[mlx-audio] Failed to spawn: ${msg}`);
-      return;
+      return false;
     }
 
     this.startedAt = Date.now();
+    this.lastError = null;
 
     this.proc.stdout?.on("data", (chunk: Buffer) => {
       const line = chunk.toString().trim();
@@ -105,7 +108,7 @@ export class ProcessManager extends EventEmitter {
 
     this.proc.stderr?.on("data", (chunk: Buffer) => {
       const line = chunk.toString().trim();
-      if (line) this.logger.info(`[mlx-audio/server] ${line}`);
+      if (line) this.logger.warn(`[mlx-audio/server] ${line}`);
     });
 
     this.proc.on("error", (err) => {
@@ -128,5 +131,6 @@ export class ProcessManager extends EventEmitter {
         this.emit("max-restarts");
       }
     });
+    return true;
   }
 }

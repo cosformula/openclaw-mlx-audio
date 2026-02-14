@@ -4,6 +4,8 @@ import http from "node:http";
 import type { MlxAudioConfig } from "./config.js";
 import { buildInjectedParams } from "./config.js";
 
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+
 export class TtsProxy {
   private server: http.Server | null = null;
 
@@ -30,9 +32,12 @@ export class TtsProxy {
 
   async stop(): Promise<void> {
     if (!this.server) return;
+    const server = this.server;
     return new Promise((resolve) => {
-      this.server!.close(() => resolve());
-      this.server = null;
+      server.close(() => {
+        this.server = null;
+        resolve();
+      });
     });
   }
 
@@ -44,9 +49,25 @@ export class TtsProxy {
       return;
     }
 
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    const chunks: Buffer[] = [];
+    let bodySize = 0;
+    let tooLarge = false;
+
+    req.on("data", (chunk: Buffer) => {
+      if (tooLarge) return;
+      bodySize += chunk.length;
+      if (bodySize > MAX_REQUEST_BODY_BYTES) {
+        tooLarge = true;
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Request body too large (max 1MB)" }));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => {
+      if (tooLarge) return;
+      const body = Buffer.concat(chunks).toString("utf8");
       try {
         const parsed = JSON.parse(body);
         const injected = buildInjectedParams(this.cfg);
