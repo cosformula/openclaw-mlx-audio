@@ -22,7 +22,7 @@ export interface MlxAudioConfig {
 const DEFAULTS: MlxAudioConfig = {
   port: 19280,
   proxyPort: 19281,
-  model: "mlx-community/Kokoro-82M-bf16",
+  model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
   speed: 1.0,
   langCode: "a",
   temperature: 0.7,

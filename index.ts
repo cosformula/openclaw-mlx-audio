@@ -31,7 +31,7 @@ interface PluginApi {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
-    handler: (params: Record<string, unknown>) => Promise<unknown>;
+    execute: (id: string, params: Record<string, unknown>) => Promise<unknown>;
   }) => void;
   registerCommand: (cmd: {
     name: string;
@@ -139,12 +139,12 @@ export default function register(api: PluginApi) {
       },
       required: ["action"],
     },
-    handler: async (params: Record<string, unknown>) => {
+    execute: async (_id: string, params: Record<string, unknown>) => {
       const action = params.action as string;
 
       if (action === "status") {
         const status = procMgr.getStatus();
-        return {
+        const result = {
           server: status,
           config: {
             model: cfg.model,
@@ -153,11 +153,12 @@ export default function register(api: PluginApi) {
             langCode: cfg.langCode,
           },
         };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       if (action === "generate") {
         const text = params.text as string;
-        if (!text) return { error: "text is required for generate action" };
+        if (!text) return { content: [{ type: "text", text: JSON.stringify({ error: "text is required for generate action" }) }] };
 
         // Make request through proxy
         return new Promise((resolve) => {
@@ -177,30 +178,24 @@ export default function register(api: PluginApi) {
               res.on("end", () => {
                 const audio = Buffer.concat(chunks);
                 if (res.statusCode !== 200) {
-                  resolve({ error: `Server returned ${res.statusCode}`, body: audio.toString() });
+                  resolve({ content: [{ type: "text", text: JSON.stringify({ error: `Server returned ${res.statusCode}`, body: audio.toString() }) }] });
                   return;
                 }
                 const outputPath = params.outputPath as string | undefined;
-                if (outputPath) {
-                  fs.writeFileSync(outputPath, audio);
-                  resolve({ ok: true, path: outputPath, bytes: audio.length });
-                } else {
-                  // Save to temp file
-                  const tmp = `/tmp/mlx-audio-${Date.now()}.mp3`;
-                  fs.writeFileSync(tmp, audio);
-                  resolve({ ok: true, path: tmp, bytes: audio.length });
-                }
+                const outFile = outputPath || `/tmp/mlx-audio-${Date.now()}.mp3`;
+                fs.writeFileSync(outFile, audio);
+                resolve({ content: [{ type: "text", text: JSON.stringify({ ok: true, path: outFile, bytes: audio.length }) }] });
               });
             },
           );
           req.on("timeout", () => req.destroy(new Error("Request timed out")));
-          req.on("error", (err) => resolve({ error: err.message }));
+          req.on("error", (err) => resolve({ content: [{ type: "text", text: JSON.stringify({ error: err.message }) }] }));
           req.write(body);
           req.end();
         });
       }
 
-      return { error: `Unknown action: ${action}` };
+      return { content: [{ type: "text", text: JSON.stringify({ error: `Unknown action: ${action}` }) }] };
     },
   });
 
