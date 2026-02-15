@@ -122,13 +122,3 @@ export async function resolveSecureOutputPath(outputPath: string | undefined, op
 
   return targetPath;
 }
-
-export async function writeOutputFileSecure(
-  payload: Buffer,
-  outputPath: string | undefined,
-  opts: OutputPathOptions,
-): Promise<{ path: string; bytes: number }> {
-  const targetPath = await resolveSecureOutputPath(outputPath, opts);
-  await fs.writeFile(targetPath, payload);
-  return { path: targetPath, bytes: payload.length };
-}
