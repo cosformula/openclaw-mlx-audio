@@ -157,9 +157,12 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 ### 4. 重启 OpenClaw
 
 插件启动时会自动完成以下步骤：
-- 在 `~/.openclaw/mlx-audio/venv/` 创建 Python 虚拟环境并安装依赖
-- 在端口 19280 启动 mlx-audio 服务
 - 在端口 19281 启动代理服务
+- 若 `autoStart: true`，后台预热 mlx-audio 服务
+- 若 `autoStart: false`，在首次 `/v1/audio/speech`、`GET /v1/models`、tool `generate` 或 `/mlx-tts test` 时拉起服务
+- 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用，下次请求再重试启动
+- 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后创建 `~/.openclaw/mlx-audio/venv/` 并安装 Python 依赖
+- 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
 
@@ -197,11 +200,14 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 代理拦截请求，注入配置参数后转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
 
 插件同时管理服务生命周期：
-- 创建和维护 Python 虚拟环境
+- `managed` 模式下，自举本地 `uv` 工具链，并维护 `~/.openclaw/mlx-audio/` 下的 Python 虚拟环境
+- `external` 模式下，仅校验并使用 `pythonExecutable` 指向的环境，不修改用户环境
 - 以子进程方式启动 mlx-audio 服务
 - 崩溃自动重启（健康运行 30 秒后重置计数）
 - 启动前清理端口上的残留进程
 - 启动前检查可用内存，识别 OOM kill
+- 限制 tool 输出路径仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，并校验 realpath、拒绝符号链接路径段
+- 生成音频采用流式写盘，并拒绝超过 64 MB 的响应，避免内存峰值增长
 
 ## 故障排查
 
@@ -224,6 +230,10 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 # 2) 仅在确认是 mlx_audio.server 后，优先优雅终止
 kill -TERM <mlx_audio_server_pid>
 ```
+
+**启动健康检查超时**
+
+若日志出现 `Server did not pass health check within 10000ms`，表示启动阶段未在预期时间内通过健康检查。常见原因包括首次依赖/模型预热较慢、模型名错误、或 external 模式依赖不完整。修复后再次触发请求即可重试启动。
 
 **首次启动耗时较长**
 

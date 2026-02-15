@@ -10,12 +10,14 @@ import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
 import { VenvManager } from "./src/venv-manager.js";
-import { writeOutputFileSecure } from "./src/output-path.js";
+import { resolveSecureOutputPath } from "./src/output-path.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { Transform, type TransformCallback } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 interface PluginApi {
@@ -48,7 +50,10 @@ interface PluginApi {
 
 const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
 const STARTUP_HEALTH_INTERVAL_MS = 500;
+const STARTUP_HEALTH_TIMEOUT_MS = STARTUP_HEALTH_MAX_ATTEMPTS * STARTUP_HEALTH_INTERVAL_MS;
 const GENERATE_REQUEST_TIMEOUT_MS = 600_000;
+const MAX_AUDIO_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_ERROR_DETAIL_BYTES = 8 * 1024;
 const DEFAULT_PLUGIN_ID = "openclaw-mlx-audio";
 const MAX_CAPTURED_PROCESS_OUTPUT_CHARS = 16_384;
 const EXTERNAL_PYTHON_REQUIRED_MODULES = [
@@ -390,6 +395,10 @@ export default function register(api: PluginApi) {
     }
 
     if (procMgr.isRunning()) {
+      const healthy = await waitForServerHealthy(cfg.port);
+      if (!healthy) {
+        throw new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms`);
+      }
       health.start();
       return;
     }
@@ -400,15 +409,34 @@ export default function register(api: PluginApi) {
     }
 
     ensureServerPromise = (async () => {
-      // Lazy setup Python runtime + dependencies on first actual server start.
-      await ensurePythonRuntimeReady();
-      await procMgr.start();
-      const healthy = await waitForServerHealthy(cfg.port);
-      if (!healthy) {
-        logger.warn("[mlx-audio] Server not healthy after startup, continuing anyway...");
-      }
-      if (serviceRunning) {
+      let started = false;
+      try {
+        // Lazy setup Python runtime + dependencies on first actual server start.
+        await ensurePythonRuntimeReady();
+        if (!serviceRunning) {
+          throw new Error("Plugin service stopped during startup");
+        }
+        await procMgr.start();
+        started = true;
+        if (!serviceRunning) {
+          throw new Error("Plugin service stopped during startup");
+        }
+        const healthy = await waitForServerHealthy(cfg.port);
+        if (!healthy) {
+          throw new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms`);
+        }
+        if (!serviceRunning) {
+          throw new Error("Plugin service stopped during startup");
+        }
         health.start();
+      } catch (err: unknown) {
+        if (started) {
+          await procMgr.stop().catch((stopErr) => {
+            const stopMsg = stopErr instanceof Error ? stopErr.message : String(stopErr);
+            logger.error(`[mlx-audio] Failed to stop server after startup error: ${stopMsg}`);
+          });
+        }
+        throw err;
       }
     })();
 
@@ -430,6 +458,12 @@ export default function register(api: PluginApi) {
     }
 
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result: { ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }): void => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
       const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
       const req = http.request(
         {
@@ -441,38 +475,75 @@ export default function register(api: PluginApi) {
           timeout: GENERATE_REQUEST_TIMEOUT_MS,
         },
         (res) => {
-          const chunks: Buffer[] = [];
-          res.on("data", (c) => chunks.push(c));
-          res.on("end", () => {
-            const payload = Buffer.concat(chunks);
-            if (res.statusCode !== 200) {
-              const detail = payload.toString();
-              resolve({
+          if (res.statusCode !== 200) {
+            const chunks: Buffer[] = [];
+            let captured = 0;
+            res.on("data", (chunk: Buffer) => {
+              if (captured >= MAX_ERROR_DETAIL_BYTES) return;
+              const remaining = MAX_ERROR_DETAIL_BYTES - captured;
+              const clipped = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+              chunks.push(clipped);
+              captured += clipped.length;
+            });
+            res.on("end", () => {
+              const detail = Buffer.concat(chunks).toString("utf8").trim();
+              finish({
                 ok: false,
                 error: `Server returned ${res.statusCode}${detail ? `: ${detail}` : ""}`,
                 statusCode: res.statusCode,
               });
-              return;
-            }
+            });
+            res.on("error", (err) => finish({ ok: false, error: err.message, statusCode: res.statusCode }));
+            return;
+          }
 
+          const outputOptions = {
+            tmpDir,
+            systemTmpDir,
+            outputDir,
+            homeDir,
+          };
+          let targetPath = "";
+          try {
+            targetPath = resolveSecureOutputPath(outputPath, outputOptions);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            res.resume();
+            finish({ ok: false, error: `Failed to write audio file: ${msg}` });
+            return;
+          }
+
+          let bytes = 0;
+          const sizeGuard = new Transform({
+            transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
+              bytes += chunk.length;
+              if (bytes > MAX_AUDIO_RESPONSE_BYTES) {
+                callback(new Error(`Audio payload exceeds ${MAX_AUDIO_RESPONSE_BYTES} bytes`));
+                return;
+              }
+              callback(null, chunk);
+            },
+          });
+          const writer = fs.createWriteStream(targetPath, { flags: "w" });
+          void (async () => {
             try {
-              const writeResult = writeOutputFileSecure(payload, outputPath, {
-                tmpDir,
-                systemTmpDir,
-                outputDir,
-                homeDir,
-              });
-              resolve({ ok: true, path: writeResult.path, bytes: writeResult.bytes });
+              await pipeline(res, sizeGuard, writer);
+              finish({ ok: true, path: targetPath, bytes });
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : String(err);
-              resolve({ ok: false, error: `Failed to write audio file: ${msg}` });
+              try {
+                fs.unlinkSync(targetPath);
+              } catch {
+                // ignore cleanup failures
+              }
+              finish({ ok: false, error: `Failed to write audio file: ${msg}` });
             }
-          });
+          })();
         },
       );
 
       req.on("timeout", () => req.destroy(new Error("Request timed out")));
-      req.on("error", (err) => resolve({ ok: false, error: err.message }));
+      req.on("error", (err) => finish({ ok: false, error: err.message }));
       req.write(body);
       req.end();
     });

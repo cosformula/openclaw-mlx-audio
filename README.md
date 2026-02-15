@@ -157,9 +157,12 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 ### 4. Restart OpenClaw
 
 On startup, the plugin will:
-- Create a Python virtual environment at `~/.openclaw/mlx-audio/venv/` and install dependencies
-- Start the mlx-audio server on port 19280
 - Start a proxy on port 19281
+- If `autoStart: true`, warm up the mlx-audio server in the background
+- If `autoStart: false`, start the server on first `/v1/audio/speech`, `GET /v1/models`, tool `generate`, or `/mlx-tts test`
+- Require upstream `/v1/models` health to pass within about 10 seconds during startup, otherwise the request returns unavailable and startup is retried on next request
+- If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, then create `~/.openclaw/mlx-audio/venv/` and install Python dependencies
+- If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
 
@@ -197,11 +200,14 @@ OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional par
 The proxy intercepts requests, injects configured parameters, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
 
 The plugin also manages the server lifecycle:
-- Creates and maintains a Python virtual environment
+- In `managed` mode, bootstraps a local `uv` toolchain and maintains a Python virtual environment under `~/.openclaw/mlx-audio/`
+- In `external` mode, validates the configured `pythonExecutable` and uses that environment without modifying it
 - Starts the mlx-audio server as a child process
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
 - Checks available memory before starting; detects OOM kills
+- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`, verifies real paths, and rejects symbolic-link segments
+- Streams generated audio directly to disk and rejects payloads larger than 64 MB to prevent memory spikes
 
 ## Troubleshooting
 
@@ -224,6 +230,10 @@ The plugin only cleans up stale `mlx_audio.server` processes on the target port.
 # 2) Only if the command is mlx_audio.server, terminate it gracefully
 kill -TERM <mlx_audio_server_pid>
 ```
+
+**Startup health timeout**
+
+If logs show `Server did not pass health check within 10000ms`, startup did not become healthy in time. Common causes are first-run dependency/model warmup, wrong model name, or dependency mismatch in external mode. Retry after fixing the root cause.
 
 **Slow first startup**
 

@@ -50,13 +50,14 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 - `pythonEnvMode=external` 时，使用 `pythonExecutable` 指向的环境，启动前校验 Python 版本（3.11-3.13）与关键依赖可导入
 - `autoStart=true` 时后台预热所选 Python 运行时与 `mlx_audio.server`
 - `autoStart=false` 时在首个生成请求或 `GET /v1/models` 请求按需拉起 `mlx_audio.server`
+- 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用并在下次请求重试
 - 停止时关闭 proxy 与 `mlx_audio.server`
 - 可选健康检查与自动重启
 
 ### 2. Tool
 
 `mlx_audio_tts` 支持两个 action：
-- `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，并拒绝符号链接路径段）
+- `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，并拒绝符号链接路径段，音频响应流式写盘并限制 64 MB）
 - `status`：返回服务状态与关键配置
 
 ### 3. Command

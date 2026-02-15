@@ -100,7 +100,7 @@ function assertTargetIsSafe(targetPath: string): void {
   }
 }
 
-export function writeOutputFileSecure(payload: Buffer, outputPath: string | undefined, opts: OutputPathOptions): { path: string; bytes: number } {
+export function resolveSecureOutputPath(outputPath: string | undefined, opts: OutputPathOptions): string {
   const targetPath = resolveOutputPath(outputPath, opts);
   const allowedRoot = selectAllowedRoot(targetPath, opts);
   const parentDir = path.dirname(targetPath);
@@ -109,6 +109,11 @@ export function writeOutputFileSecure(payload: Buffer, outputPath: string | unde
   assertRealPathWithinRoot(allowedRoot, parentDir);
   assertTargetIsSafe(targetPath);
 
+  return targetPath;
+}
+
+export function writeOutputFileSecure(payload: Buffer, outputPath: string | undefined, opts: OutputPathOptions): { path: string; bytes: number } {
+  const targetPath = resolveSecureOutputPath(outputPath, opts);
   fs.writeFileSync(targetPath, payload);
   return { path: targetPath, bytes: payload.length };
 }

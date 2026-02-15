@@ -1,6 +1,7 @@
 /** Manages the mlx_audio.server Python subprocess. */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
@@ -41,6 +42,7 @@ export class ProcessManager extends EventEmitter {
   private stderrBuffer: string[] = [];
   private restartBudgetExhausted = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private lifecycleQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private cfg: MlxAudioConfig,
@@ -63,65 +65,32 @@ export class ProcessManager extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    this.clearRestartTimer();
-    if (this.proc) {
-      this.logger.warn("[mlx-audio] Server already running");
-      return;
-    }
-    this.stopping = false;
-    // Pre-flight memory check
-    this.checkMemory();
-    // Ensure port is free before starting
-    await this.killPortHolder();
-    const ok = this.spawn();
-    if (!ok) {
-      throw new Error(this.lastError ? `[mlx-audio] Failed to start server: ${this.lastError}` : "[mlx-audio] Failed to start server");
-    }
+    await this.runLifecycleTask(() => this.startInternal());
   }
 
   async stop(): Promise<void> {
-    this.stopping = true;
-    this.clearRestartTimer();
-    if (!this.proc) return;
-    const proc = this.proc;
-    this.logger.info("[mlx-audio] Stopping server...");
-    proc.kill("SIGTERM");
-    // Give it 5s, then SIGKILL
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.proc === proc) {
-          proc.kill("SIGKILL");
-        }
-        resolve();
-      }, 5000);
-      proc.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-    });
-    if (this.proc === proc) {
-      this.proc = null;
-      this.startedAt = null;
-    }
+    await this.runLifecycleTask(() => this.stopInternal());
   }
 
   async restart(options?: { resetCrashCounter?: boolean; reason?: string }): Promise<void> {
-    const resetCounter = options?.resetCrashCounter ?? true;
-    const reason = options?.reason ?? "manual restart";
-    this.clearRestartTimer();
+    await this.runLifecycleTask(async () => {
+      const resetCounter = options?.resetCrashCounter ?? true;
+      const reason = options?.reason ?? "manual restart";
+      this.clearRestartTimer();
 
-    if (!resetCounter) {
-      if (!this.consumeRestartBudget(reason)) {
+      if (!resetCounter) {
+        if (!this.consumeRestartBudget(reason)) {
+          return;
+        }
+        await this.stopInternal();
+        await this.startInternal();
         return;
       }
-      await this.stop();
-      await this.start();
-      return;
-    }
 
-    await this.stop();
-    this.resetCrashCounter();
-    await this.start();
+      await this.stopInternal();
+      this.resetCrashCounter();
+      await this.startInternal();
+    });
   }
 
   isRunning(): boolean {
@@ -377,8 +346,7 @@ export class ProcessManager extends EventEmitter {
     }
     this.clearRestartTimer();
     // Use a writable directory for cwd and logs (mlx_audio.server creates a logs/ dir)
-    const dataDir = resolve(process.env.HOME ?? "/tmp", ".openclaw", "mlx-audio");
-    const logDir = resolve(dataDir, "logs");
+    const { dataDir, logDir } = this.ensureRuntimeDirs();
     const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
     this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 
@@ -473,6 +441,79 @@ export class ProcessManager extends EventEmitter {
       }
     });
     return true;
+  }
+
+  private async runLifecycleTask(task: () => Promise<void>): Promise<void> {
+    const previous = this.lifecycleQueue;
+    let release: () => void = () => {};
+    this.lifecycleQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      await task();
+    } finally {
+      release();
+    }
+  }
+
+  private async startInternal(): Promise<void> {
+    this.clearRestartTimer();
+    if (this.proc) {
+      this.logger.warn("[mlx-audio] Server already running");
+      return;
+    }
+    this.stopping = false;
+    // Pre-flight memory check
+    this.checkMemory();
+    // Ensure port is free before starting
+    await this.killPortHolder();
+    const ok = this.spawn();
+    if (!ok) {
+      throw new Error(this.lastError ? `[mlx-audio] Failed to start server: ${this.lastError}` : "[mlx-audio] Failed to start server");
+    }
+  }
+
+  private async stopInternal(): Promise<void> {
+    this.stopping = true;
+    this.clearRestartTimer();
+    if (!this.proc) return;
+    const proc = this.proc;
+    this.logger.info("[mlx-audio] Stopping server...");
+    // Give it 5s, then SIGKILL
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finalize = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+
+      proc.once("exit", () => {
+        finalize();
+      });
+      const timer = setTimeout(() => {
+        if (this.proc === proc) {
+          proc.kill("SIGKILL");
+        }
+        finalize();
+      }, 5000);
+
+      proc.kill("SIGTERM");
+    });
+    if (this.proc === proc) {
+      this.proc = null;
+      this.startedAt = null;
+    }
+  }
+
+  private ensureRuntimeDirs(): { dataDir: string; logDir: string } {
+    const dataDir = resolve(process.env.HOME ?? "/tmp", ".openclaw", "mlx-audio");
+    const logDir = resolve(dataDir, "logs");
+    mkdirSync(logDir, { recursive: true });
+    return { dataDir, logDir };
   }
 
   private scheduleRestart(): void {
