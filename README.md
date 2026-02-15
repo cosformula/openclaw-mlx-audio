@@ -1,13 +1,15 @@
 # @cosformula/mlx-audio
 
-OpenClaw plugin for **local text-to-speech** on Apple Silicon Macs, powered by [mlx-audio](https://github.com/ml-explore/mlx-audio). No API keys, no cloud, no latency penalty — audio is generated on-device.
+**The missing local TTS for OpenClaw on Apple Silicon.**
 
-## Why
+OpenClaw supports ElevenLabs, OpenAI, and Edge TTS out of the box — all cloud-based. Existing self-hosted alternatives ([openedai-speech](https://github.com/matatonic/openedai-speech), [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server)) require NVIDIA GPUs. If you're on a Mac, you're stuck paying per request or sending voice data to someone else's server.
 
-- **Privacy**: voice data never leaves your machine
-- **Free**: no per-request cost, no API quota
-- **Offline**: works without internet (after first model download)
-- **Low latency**: comparable to cloud TTS on Apple Silicon
+This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally on Apple Silicon. It manages everything — Python venv, model downloads, server lifecycle, crash recovery — so you don't have to.
+
+- **Zero cloud dependency** after first model download
+- **Zero cost** per request
+- **Zero config** for the Python side — the plugin handles it
+- **Comparable latency** to cloud TTS on M-series chips
 
 ## Requirements
 
@@ -97,7 +99,7 @@ All fields are optional. Set in `plugins.entries.mlx-audio.config`:
 | `refAudio` | — | Path to reference audio for voice cloning (1.7B VoiceDesign only) |
 | `refText` | — | Transcript of reference audio |
 
-## Architecture
+## How It Works
 
 ```
 OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silicon GPU
@@ -105,7 +107,16 @@ OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silico
                     lang_code, speed
 ```
 
-The proxy exists so OpenClaw's generic OpenAI TTS client doesn't need to know about mlx-audio-specific parameters. It intercepts requests and injects the configured model ID, language code, and speed.
+OpenClaw's built-in TTS client speaks the OpenAI `/v1/audio/speech` API. But mlx-audio models need extra parameters (full HuggingFace model ID, `lang_code`, etc.) that OpenAI's API doesn't have.
+
+The proxy sits in between: it intercepts requests, injects the configured parameters, and forwards to the real mlx-audio server. This means OpenClaw doesn't need any code changes — it just talks to what looks like an OpenAI TTS endpoint.
+
+The plugin also manages the full server lifecycle:
+- Creates and maintains a Python venv (`~/.openclaw/mlx-audio/venv/`)
+- Starts the mlx-audio server as a child process
+- Auto-restarts on crash (with smart backoff — counter resets after 30s healthy uptime)
+- Cleans up zombie processes on port conflicts
+- Warns on low memory before starting, detects OOM kills
 
 ## Troubleshooting
 
