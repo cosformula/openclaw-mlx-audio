@@ -16,12 +16,9 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 ## 系统要求
 
 - macOS，Apple Silicon（M1 及以后）
-- Python 3.11+（插件管理独立 venv，不影响系统环境）
-- OpenClaw 2026.2.6 或更高版本
-
-插件通过 `OPENAI_TTS_BASE_URL` 环境变量将 OpenClaw 的 OpenAI TTS 重定向到本地端点，该环境变量从 OpenClaw 2026.2.6 开始支持，更早的版本未经测试。
-
-[openclaw#9709](https://github.com/openclaw/openclaw/issues/9709) 合并后，插件将迁移到原生的 `messages.tts.openai.baseUrl` 配置字段，届时不再需要环境变量。
+- 默认 `pythonEnvMode: managed` 无需预装 Python 或 Homebrew，插件会自举 `uv` 与本地 Python 运行时
+- 可选 `pythonEnvMode: external`，通过 `pythonExecutable` 复用已有 Python 环境
+- OpenClaw
 
 ## 模型
 

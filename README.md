@@ -16,12 +16,9 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 ## Requirements
 
 - macOS, Apple Silicon (M1 and later)
-- Python 3.11+ (the plugin manages its own venv)
-- OpenClaw 2026.2.6 or later
-
-The plugin uses `OPENAI_TTS_BASE_URL` to redirect OpenClaw's OpenAI TTS provider to a local endpoint. This environment variable is supported since OpenClaw 2026.2.6. Earlier versions have not been tested.
-
-Once [openclaw#9709](https://github.com/openclaw/openclaw/issues/9709) lands, the plugin will migrate to the native `messages.tts.openai.baseUrl` config field and remove the env var workaround.
+- Default `pythonEnvMode: managed` requires no preinstalled Python or Homebrew, the plugin bootstraps `uv` and a local Python runtime
+- Optional `pythonEnvMode: external` uses your existing Python environment via `pythonExecutable`
+- OpenClaw
 
 ## Models
 
