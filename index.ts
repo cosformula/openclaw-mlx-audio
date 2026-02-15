@@ -46,6 +46,7 @@ interface PluginApi {
 
 const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
 const STARTUP_HEALTH_INTERVAL_MS = 500;
+const GENERATE_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_PLUGIN_ID = "openclaw-mlx-audio";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,6 +161,56 @@ export default function register(api: PluginApi) {
     }
   });
 
+  async function generateAudioViaProxy(text: string, outputPath?: string): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }> {
+    return new Promise((resolve) => {
+      const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: cfg.proxyPort,
+          path: "/v1/audio/speech",
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+          timeout: GENERATE_REQUEST_TIMEOUT_MS,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            const payload = Buffer.concat(chunks);
+            if (res.statusCode !== 200) {
+              const detail = payload.toString();
+              resolve({
+                ok: false,
+                error: `Server returned ${res.statusCode}${detail ? `: ${detail}` : ""}`,
+                statusCode: res.statusCode,
+              });
+              return;
+            }
+
+            const outFile = outputPath || `/tmp/mlx-audio-${Date.now()}.mp3`;
+            try {
+              const outDir = path.dirname(outFile);
+              if (!fs.existsSync(outDir)) {
+                fs.mkdirSync(outDir, { recursive: true });
+              }
+              fs.writeFileSync(outFile, payload);
+              resolve({ ok: true, path: outFile, bytes: payload.length });
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              resolve({ ok: false, error: `Failed to write audio file: ${msg}` });
+            }
+          });
+        },
+      );
+
+      req.on("timeout", () => req.destroy(new Error("Request timed out")));
+      req.on("error", (err) => resolve({ ok: false, error: err.message }));
+      req.write(body);
+      req.end();
+    });
+  }
+
   // ── Service ──
 
   api.registerService({
@@ -229,54 +280,9 @@ export default function register(api: PluginApi) {
       if (action === "generate") {
         const text = params.text as string;
         if (!text) return { content: [{ type: "text", text: JSON.stringify({ error: "text is required for generate action" }) }] };
-
-        // Make request through proxy
-        return new Promise((resolve) => {
-          const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
-          const req = http.request(
-            {
-              hostname: "127.0.0.1",
-              port: cfg.proxyPort,
-              path: "/v1/audio/speech",
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
-              timeout: 120000,
-            },
-            (res) => {
-              const chunks: Buffer[] = [];
-              res.on("data", (c) => chunks.push(c));
-              res.on("end", () => {
-                const audio = Buffer.concat(chunks);
-                if (res.statusCode !== 200) {
-                  resolve({ content: [{ type: "text", text: JSON.stringify({ error: `Server returned ${res.statusCode}`, body: audio.toString() }) }] });
-                  return;
-                }
-                const outputPath = params.outputPath as string | undefined;
-                const outFile = outputPath || `/tmp/mlx-audio-${Date.now()}.mp3`;
-                try {
-                  const outDir = path.dirname(outFile);
-                  if (!fs.existsSync(outDir)) {
-                    fs.mkdirSync(outDir, { recursive: true });
-                  }
-                  fs.writeFileSync(outFile, audio);
-                  resolve({ content: [{ type: "text", text: JSON.stringify({ ok: true, path: outFile, bytes: audio.length }) }] });
-                } catch (err: unknown) {
-                  const msg = err instanceof Error ? err.message : String(err);
-                  resolve({
-                    content: [{
-                      type: "text",
-                      text: JSON.stringify({ error: `Failed to write audio file: ${msg}`, path: outFile }),
-                    }],
-                  });
-                }
-              });
-            },
-          );
-          req.on("timeout", () => req.destroy(new Error("Request timed out")));
-          req.on("error", (err) => resolve({ content: [{ type: "text", text: JSON.stringify({ error: err.message }) }] }));
-          req.write(body);
-          req.end();
-        });
+        const outputPath = params.outputPath as string | undefined;
+        const result = await generateAudioViaProxy(text, outputPath);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
 
       return { content: [{ type: "text", text: JSON.stringify({ error: `Unknown action: ${action}` }) }] };
@@ -312,7 +318,13 @@ export default function register(api: PluginApi) {
 
       if (subCmd === "test") {
         const text = rest.join(" ") || "Hello, this is a test of local text to speech.";
-        return { text: `Generating audio for: "${text}"...\nUse the mlx_audio_tts tool with action=generate to produce audio.` };
+        const startedAt = Date.now();
+        const result = await generateAudioViaProxy(text);
+        if (!result.ok) {
+          return { text: `Test failed: ${result.error}` };
+        }
+        const elapsed = Date.now() - startedAt;
+        return { text: `Test succeeded in ${elapsed} ms\nFile: ${result.path}\nBytes: ${result.bytes}` };
       }
 
       return { text: `Unknown subcommand: ${subCmd}. Use: status, test` };

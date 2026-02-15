@@ -217,7 +217,11 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 插件启动时只会清理残留的 `mlx_audio.server` 进程。如果目标端口被其他程序占用，请手动停止该程序，或修改 `port`/`proxyPort`：
 
 ```bash
-kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
+# 1) 先确认端口被谁占用
+/usr/sbin/lsof -nP -iTCP:19280 -sTCP:LISTEN
+
+# 2) 仅在确认是 mlx_audio.server 后，优先优雅终止
+kill -TERM <mlx_audio_server_pid>
 ```
 
 **首次启动耗时较长**

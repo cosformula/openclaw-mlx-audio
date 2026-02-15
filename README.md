@@ -217,7 +217,11 @@ Logs will show `⚠️ Server was killed by SIGKILL (likely out-of-memory)`. The
 The plugin only cleans up stale `mlx_audio.server` processes on the target port. If another app is using the configured port, stop it manually or change `port`/`proxyPort`:
 
 ```bash
-kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
+# 1) Inspect who owns the port first
+/usr/sbin/lsof -nP -iTCP:19280 -sTCP:LISTEN
+
+# 2) Only if the command is mlx_audio.server, terminate it gracefully
+kill -TERM <mlx_audio_server_pid>
 ```
 
 **Slow first startup**

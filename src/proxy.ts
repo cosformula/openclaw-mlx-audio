@@ -1,5 +1,6 @@
 /** Lightweight HTTP proxy that injects TTS preset params. */
 
+import { execFileSync } from "node:child_process";
 import http from "node:http";
 import type { MlxAudioConfig } from "./config.js";
 import { buildInjectedParams } from "./config.js";
@@ -20,6 +21,7 @@ export class TtsProxy {
 
   async start(): Promise<void> {
     if (this.server) return;
+    this.assertProxyPortAvailable();
 
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res);
@@ -30,7 +32,9 @@ export class TtsProxy {
         this.logger.info(`[mlx-audio] Proxy listening on 127.0.0.1:${this.cfg.proxyPort}`);
         resolve();
       });
-      this.server!.on("error", reject);
+      this.server!.on("error", (err) => {
+        reject(new Error(`[mlx-audio] Failed to start proxy on port ${this.cfg.proxyPort}: ${(err as Error).message}`));
+      });
     });
   }
 
@@ -162,5 +166,48 @@ export class TtsProxy {
     });
 
     req.pipe(upstream);
+  }
+
+  private assertProxyPortAvailable(): void {
+    const owners = this.listListeningPids(this.cfg.proxyPort);
+    if (owners.length === 0) return;
+    const desc = owners
+      .map((pid) => {
+        const command = this.getProcessCommand(pid);
+        return `${pid}${command ? ` (${command})` : ""}`;
+      })
+      .join(", ");
+    throw new Error(
+      `[mlx-audio] Proxy port ${this.cfg.proxyPort} is already in use by: ${desc}. ` +
+      "Stop that process or change proxyPort.",
+    );
+  }
+
+  private listListeningPids(port: number): number[] {
+    try {
+      const output = execFileSync("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+        encoding: "utf-8",
+        timeout: 5000,
+      }).trim();
+      if (!output) return [];
+      return output
+        .split("\n")
+        .map((line) => Number(line.trim()))
+        .filter((pid) => Number.isInteger(pid) && pid > 0);
+    } catch {
+      // If lsof is unavailable, we fall back to listen() error handling.
+      return [];
+    }
+  }
+
+  private getProcessCommand(pid: number): string {
+    try {
+      return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        encoding: "utf-8",
+        timeout: 5000,
+      }).trim();
+    } catch {
+      return "";
+    }
   }
 }
