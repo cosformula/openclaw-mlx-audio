@@ -12,6 +12,16 @@
       "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 19280, "description": "mlx_audio.server port" },
       "proxyPort": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 19281, "description": "Proxy port" },
       "model": { "type": "string", "minLength": 1, "default": "mlx-community/Kokoro-82M-bf16", "description": "HuggingFace model ID" },
+      "pythonEnvMode": {
+        "type": "string",
+        "enum": ["managed", "external"],
+        "default": "managed",
+        "description": "Python runtime mode: managed venv or external environment"
+      },
+      "pythonExecutable": {
+        "type": "string",
+        "description": "Python executable for external mode (for example, /opt/homebrew/bin/python3.12)"
+      },
       "speed": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
       "langCode": { "type": "string", "minLength": 1, "default": "a", "description": "Language code: a=English, z=Chinese, j=Japanese" },
       "refAudio": { "type": "string", "description": "Path to reference audio for voice clone" },
@@ -32,6 +42,8 @@
     "port": { "label": "Server Port" },
     "proxyPort": { "label": "Proxy Port" },
     "model": { "label": "Model", "placeholder": "mlx-community/Kokoro-82M-bf16" },
+    "pythonEnvMode": { "label": "Python Env Mode" },
+    "pythonExecutable": { "label": "Python Executable", "placeholder": "/opt/homebrew/bin/python3.12" },
     "refAudio": { "label": "Reference Audio Path" },
     "refText": { "label": "Reference Audio Text" }
   }

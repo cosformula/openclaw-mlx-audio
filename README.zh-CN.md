@@ -16,7 +16,8 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 ## 系统要求
 
 - macOS，Apple Silicon（M1 及以后）
-- Python 3.11-3.13（插件管理独立 venv，不影响系统环境）
+- 默认 `pythonEnvMode: managed` 无需预装 Python 或 Homebrew，插件会自举 `uv` 与本地 Python 运行时
+- 可选 `pythonEnvMode: external`，通过 `pythonExecutable` 复用已有 Python 环境
 - OpenClaw
 
 ## 模型
@@ -135,6 +136,17 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 }
 ```
 
+如需使用已有 Python 环境而非 managed venv：
+
+```json
+{
+  "config": {
+    "pythonEnvMode": "external",
+    "pythonExecutable": "/opt/homebrew/bin/python3.12"
+  }
+}
+```
+
 ### 3. 将 OpenClaw TTS 指向本地端点
 
 ```json
@@ -159,6 +171,8 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 - 在端口 19281 启动代理服务
 - 若 `autoStart: true`，后台预热 mlx-audio 服务
 - 若 `autoStart: false`，在首次 `/v1/audio/speech`、`GET /v1/models`、tool `generate` 或 `/mlx-tts test` 时拉起服务
+- 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后创建 `~/.openclaw/mlx-audio/venv/` 并安装 Python 依赖
+- 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
 
@@ -169,6 +183,8 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 | 字段 | 默认值 | 说明 |
 |---|---|---|
 | `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace 模型 ID |
+| `pythonEnvMode` | `managed` | Python 运行时模式，`managed` 或 `external` |
+| `pythonExecutable` | | Python 可执行文件路径，`pythonEnvMode` 为 `external` 时必填 |
 | `port` | `19280` | mlx-audio 服务端口 |
 | `proxyPort` | `19281` | 代理端口（OpenClaw 连接此端口） |
 | `workers` | `1` | Uvicorn worker 数 |
@@ -199,7 +215,8 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 代理拦截请求，注入配置参数，在 `/v1/audio/speech` 与 `GET /v1/models` 路径先确认上游服务可用，再转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
 
 插件同时管理服务生命周期：
-- 创建和维护 Python 虚拟环境
+- `managed` 模式下，自举本地 `uv` 工具链，并维护 `~/.openclaw/mlx-audio/` 下的 Python 虚拟环境
+- `external` 模式下，仅校验并使用 `pythonExecutable` 指向的环境，不修改用户环境
 - 以子进程方式启动 mlx-audio 服务
 - 崩溃自动重启（健康运行 30 秒后重置计数）
 - 启动前清理端口上的残留进程
@@ -210,7 +227,16 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 
 **服务连续崩溃 3 次后停止重启**
 
-查看 OpenClaw 日志中的 `[mlx-audio] Last errors:`。常见原因：Python 依赖缺失、模型名称错误、端口冲突。修复后修改任意配置项可重置崩溃计数。
+查看 OpenClaw 日志中的 `[mlx-audio] Last errors:`。常见原因：managed 自举受网络影响失败、external 模式缺少依赖、模型名称错误、端口冲突。修复后修改任意配置项可重置崩溃计数。
+
+**external 模式校验失败**
+
+在 `pythonEnvMode: external` 下，插件启动前会校验 Python 版本和关键依赖。请确认 `pythonExecutable` 指向 Python 3.11-3.13，并在该环境安装依赖：
+
+```bash
+<pythonExecutable> -m pip install mlx-audio uvicorn fastapi python-multipart 'setuptools<81' webrtcvad misaki num2words phonemizer spacy
+<pythonExecutable> -m spacy download en_core_web_sm
+```
 
 **SIGKILL**
 
@@ -230,7 +256,7 @@ kill -TERM <mlx_audio_server_pid>
 
 **首次启动耗时较长**
 
-模型正在下载。Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB。
+`managed` 模式下，插件可能正在自举 `uv` 与 Python，同时下载模型。Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB。
 
 ## 致谢
 

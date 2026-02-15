@@ -42,6 +42,8 @@ function loadSchemaDefaults(): Record<string, unknown> {
 
 const SCHEMA_DEFAULTS = loadSchemaDefaults();
 
+export type PythonEnvMode = "managed" | "external";
+
 /**
  * Runtime config interface.
  * Keep in sync with openclaw.plugin.json → configSchema.properties.
@@ -51,6 +53,8 @@ export interface MlxAudioConfig {
   port: number;
   proxyPort: number;
   model: string;
+  pythonEnvMode: PythonEnvMode;
+  pythonExecutable?: string;
   speed: number;
   langCode: string;
   refAudio?: string;
@@ -72,6 +76,7 @@ const DEFAULTS: MlxAudioConfig = {
   port: 19280,
   proxyPort: 19281,
   model: "mlx-community/Kokoro-82M-bf16",
+  pythonEnvMode: "managed",
   speed: 1.0,
   langCode: "a",
   temperature: 0.7,
@@ -93,8 +98,24 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
   const cfg = { ...DEFAULTS, ...raw };
   const errors: string[] = [];
 
+  if (typeof cfg.pythonExecutable === "string") {
+    cfg.pythonExecutable = cfg.pythonExecutable.trim();
+    if (cfg.pythonExecutable.length === 0) {
+      cfg.pythonExecutable = undefined;
+    }
+  }
+
   if (!(typeof cfg.model === "string" && cfg.model.trim().length > 0)) {
     errors.push("model must be a non-empty string");
+  }
+  if (cfg.pythonEnvMode !== "managed" && cfg.pythonEnvMode !== "external") {
+    errors.push("pythonEnvMode must be either 'managed' or 'external'");
+  }
+  if (cfg.pythonExecutable !== undefined && !(typeof cfg.pythonExecutable === "string" && cfg.pythonExecutable.length > 0)) {
+    errors.push("pythonExecutable must be a non-empty string when provided");
+  }
+  if (cfg.pythonEnvMode === "external" && !cfg.pythonExecutable) {
+    errors.push("pythonExecutable is required when pythonEnvMode is 'external'");
   }
   if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
     errors.push("port must be an integer between 1 and 65535");

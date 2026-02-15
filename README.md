@@ -16,7 +16,8 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 ## Requirements
 
 - macOS, Apple Silicon (M1 and later)
-- Python 3.11-3.13 (the plugin manages its own venv)
+- Default `pythonEnvMode: managed` requires no preinstalled Python or Homebrew, the plugin bootstraps `uv` and a local Python runtime
+- Optional `pythonEnvMode: external` uses your existing Python environment via `pythonExecutable`
 - OpenClaw
 
 ## Models
@@ -135,6 +136,17 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 }
 ```
 
+To use an existing Python environment instead of the managed venv:
+
+```json
+{
+  "config": {
+    "pythonEnvMode": "external",
+    "pythonExecutable": "/opt/homebrew/bin/python3.12"
+  }
+}
+```
+
 ### 3. Point OpenClaw TTS to the Local Endpoint
 
 ```json
@@ -159,6 +171,8 @@ On startup, the plugin will:
 - Start a proxy on port 19281
 - If `autoStart: true`, warm up the mlx-audio server in the background
 - If `autoStart: false`, start the server on first `/v1/audio/speech`, `GET /v1/models`, tool `generate`, or `/mlx-tts test`
+- If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, then create `~/.openclaw/mlx-audio/venv/` and install Python dependencies
+- If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
 
@@ -169,6 +183,8 @@ All fields are optional:
 | Field | Default | Description |
 |---|---|---|
 | `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace model ID |
+| `pythonEnvMode` | `managed` | Python runtime mode, `managed` or `external` |
+| `pythonExecutable` | | Python executable path, required when `pythonEnvMode` is `external` |
 | `port` | `19280` | mlx-audio server port |
 | `proxyPort` | `19281` | Proxy port (OpenClaw connects to this) |
 | `workers` | `1` | Uvicorn worker count |
@@ -199,7 +215,8 @@ OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional par
 The proxy intercepts requests, injects configured parameters, ensures the upstream server is ready for `/v1/audio/speech` and `GET /v1/models`, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
 
 The plugin also manages the server lifecycle:
-- Creates and maintains a Python virtual environment
+- In `managed` mode, bootstraps a local `uv` toolchain and maintains a Python virtual environment under `~/.openclaw/mlx-audio/`
+- In `external` mode, validates the configured `pythonExecutable` and uses that environment without modifying it
 - Starts the mlx-audio server as a child process
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
@@ -210,7 +227,16 @@ The plugin also manages the server lifecycle:
 
 **Server crashes 3 times then stops restarting**
 
-Check OpenClaw logs for `[mlx-audio] Last errors:`. Common causes: missing Python dependency, incorrect model name, port conflict. After fixing, modify any config field to reset the crash counter.
+Check OpenClaw logs for `[mlx-audio] Last errors:`. Common causes: failed managed bootstrap due to network errors, missing modules in external mode, incorrect model name, port conflict. After fixing, modify any config field to reset the crash counter.
+
+**External Python validation failed**
+
+In `pythonEnvMode: external`, the plugin validates Python version and required modules before starting. Ensure `pythonExecutable` points to Python 3.11-3.13 and install dependencies in that environment:
+
+```bash
+<pythonExecutable> -m pip install mlx-audio uvicorn fastapi python-multipart 'setuptools<81' webrtcvad misaki num2words phonemizer spacy
+<pythonExecutable> -m spacy download en_core_web_sm
+```
 
 **SIGKILL**
 
@@ -230,7 +256,7 @@ kill -TERM <mlx_audio_server_pid>
 
 **Slow first startup**
 
-The model is being downloaded. Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB.
+In `managed` mode, the plugin may be bootstrapping `uv` and Python, and the model is being downloaded. Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB.
 
 ## Acknowledgements
 
