@@ -73,7 +73,7 @@ async function waitForServerHealthy(port: number): Promise<boolean> {
 }
 
 export default function register(api: PluginApi) {
-  const rawConfig = api.config.plugins?.entries?.["mlx-audio"]?.config as Partial<MlxAudioConfig> | undefined;
+  const rawConfig = api.config.plugins?.entries?.["openclaw-mlx-audio"]?.config as Partial<MlxAudioConfig> | undefined;
   const cfg = resolveConfig(rawConfig);
   const logger = api.logger;
 
