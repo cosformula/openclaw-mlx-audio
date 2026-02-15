@@ -2,7 +2,7 @@
 
 ## What to Build
 
-An OpenClaw plugin (`@cosformula/mlx-audio`) that provides local TTS via mlx-audio on Apple Silicon Macs.
+An OpenClaw plugin (`@cosformula/openclaw-mlx-audio`) that provides local TTS via mlx-audio on Apple Silicon Macs.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ See `docs/design.md` for full config. Key fields:
 
 ```
 mlx-audio/
-├── package.json              # @cosformula/mlx-audio, type: module
+├── package.json              # @cosformula/openclaw-mlx-audio, type: module
 ├── tsconfig.json
 ├── openclaw.plugin.json      # plugin manifest
 ├── index.ts                  # plugin entry

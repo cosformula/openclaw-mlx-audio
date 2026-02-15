@@ -56,7 +56,7 @@ OpenClaw 的 `messages.tts.openai` 只传 `model`、`voice`、`input` 三个字�
 
 ## 功能范围
 
-直接以 npm plugin 形态发布（`@cosformula/mlx-audio`），完整自动化：
+直接以 npm plugin 形态发布（`@cosformula/openclaw-mlx-audio`），完整自动化：
 
 - 自动启动/停止 mlx_audio.server 子进程
 - Proxy 层注入预设参数（ref_audio、lang_code 等）
@@ -218,7 +218,7 @@ Kokoro 会快很多（模型小 40 倍），适合低延迟场景。
 uv tool install mlx-audio --with uvicorn --with fastapi --with webrtcvad-wheels --with "setuptools<70"
 
 # 2. 安装插件
-openclaw plugins install @cosformula/mlx-audio
+openclaw plugins install @cosformula/openclaw-mlx-audio
 
 # 3. 配置模型
 openclaw config set plugins.entries.mlx-audio.config.model "mlx-community/Kokoro-82M-bf16"

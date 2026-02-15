@@ -1,4 +1,4 @@
-# @cosformula/mlx-audio
+# @cosformula/openclaw-mlx-audio
 
 **The missing local TTS for OpenClaw on Apple Silicon.**
 
@@ -31,7 +31,7 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
 
 1. **Install the plugin**:
    ```bash
-   openclaw plugin install @cosformula/mlx-audio
+   openclaw plugin install @cosformula/openclaw-mlx-audio
    ```
    Or load from local path in `openclaw.json`:
    ```json
