@@ -1,6 +1,6 @@
 /**
- * Manages a Python virtual environment for mlx-audio.
- * Auto-creates venv, installs dependencies, provides the python binary path.
+ * Manages a uv-locked Python runtime for mlx-audio.
+ * Bootstraps uv, syncs dependencies from uv.lock, and provides launch metadata.
  */
 
 import { spawn } from "node:child_process";
@@ -10,174 +10,158 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-/** All packages needed for Kokoro TTS — mlx-audio doesn't declare them all. */
-const REQUIRED_PACKAGES = [
-  "mlx-audio",
-  "uvicorn",
-  "fastapi",
-  "python-multipart",
-  "setuptools<81",    // for pkg_resources (webrtcvad needs it, removed in 82+)
-  "webrtcvad",
-  "misaki",
-  "num2words",
-  "phonemizer",
-];
-
-/** Packages that must be installed with --only-binary to avoid C compilation failures. */
-const BINARY_ONLY_PACKAGES = ["spacy>=3.8,<3.9"];
-const SPACY_MODEL_PACKAGE =
-  "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl";
 const PYTHON_VERSION = "3.12";
 const UV_RELEASE_BASE_URL = "https://github.com/astral-sh/uv/releases/latest/download";
 const UV_DOWNLOAD_TIMEOUT_MS = 60_000;
 const UV_DOWNLOAD_MAX_ATTEMPTS = 3;
 const UV_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_500;
-
-/** Minimum Python version (3.11), maximum (3.13). 3.14 breaks webrtcvad/pkg_resources. */
-const PYTHON_CANDIDATES = ["python3.12", "python3.11", "python3.13", "python3"];
-
-const MANIFEST_FILE = "manifest.json";
 const MAX_CAPTURED_OUTPUT_CHARS = 16_384;
+const RUNTIME_TEMPLATE_DIR = "python-runtime";
+const RUNTIME_PROJECT_DIR = "runtime";
+const RUNTIME_FILES = ["pyproject.toml", "uv.lock"] as const;
 
-interface Manifest {
-  version: number;
-  packages: string[];
-  pythonVersion: string;
-  createdAt: string;
+export interface ManagedRuntime {
+  pythonBin: string;
+  uvBin: string;
+  projectDir: string;
+  launchArgsPrefix: string[];
 }
-
-const MANIFEST_VERSION = 3; // Bump when deps change to force reinstall.
 
 export class VenvManager {
   private dataDir: string;
-  private venvDir: string;
   private binDir: string;
   private uvBin: string;
+  private runtimeProjectDir: string;
   private logger: { info: (m: string) => void; error: (m: string) => void; warn: (m: string) => void };
 
   constructor(dataDir: string, logger: VenvManager["logger"]) {
     this.dataDir = dataDir;
-    this.venvDir = join(dataDir, "venv");
     this.binDir = join(dataDir, "bin");
     this.uvBin = join(this.binDir, "uv");
+    this.runtimeProjectDir = join(dataDir, RUNTIME_PROJECT_DIR);
     this.logger = logger;
   }
 
-  /** Returns path to python binary inside venv. Ensures venv + deps are ready. */
-  async ensure(): Promise<string> {
-    const pythonBin = join(this.venvDir, "bin", "python");
-
-    if (await this.isReady(pythonBin)) {
-      this.logger.info("[mlx-audio/venv] Environment ready");
-      return pythonBin;
-    }
-
-    this.logger.info("[mlx-audio/venv] Setting up Python environment (first run, may take 1-2 minutes)...");
-
+  /** Returns managed runtime metadata for spawning mlx_audio.server. */
+  async ensure(): Promise<ManagedRuntime> {
     const uvBin = await this.ensureUv();
+    this.prepareRuntimeProject();
 
-    // Find suitable python
-    const systemPython = await this.findPython();
-    let pythonSpec = PYTHON_VERSION;
-    if (systemPython) {
-      this.logger.info(`[mlx-audio/venv] Using system Python: ${systemPython}`);
-      pythonSpec = systemPython;
-    } else {
-      this.logger.info(`[mlx-audio/venv] Installing Python ${PYTHON_VERSION}...`);
-      await this.run(uvBin, ["python", "install", PYTHON_VERSION]);
+    const pythonBin = this.getManagedPythonBin();
+    if (await this.isReady(uvBin, pythonBin)) {
+      this.logger.info("[mlx-audio/venv] Environment ready");
+      return {
+        pythonBin,
+        uvBin,
+        projectDir: this.runtimeProjectDir,
+        launchArgsPrefix: this.getUvRunLaunchPrefix(),
+      };
     }
 
-    // Create venv (always recreated when not ready)
-    this.logger.info("[mlx-audio/venv] Creating virtual environment...");
-    rmSync(this.venvDir, { recursive: true, force: true });
-    await this.run(uvBin, ["venv", "--seed", "--python", pythonSpec, this.venvDir]);
+    this.logger.info("[mlx-audio/venv] Setting up managed Python runtime (first run may take 1-2 minutes)...");
+    this.logger.info("[mlx-audio/venv] Syncing dependencies from uv.lock...");
+    await this.run(uvBin, this.getUvSyncArgs());
 
-    // Install main packages
-    this.logger.info("[mlx-audio/venv] Installing mlx-audio...");
-    await this.run(uvBin, ["pip", "install", "--python", pythonBin, ...REQUIRED_PACKAGES]);
-
-    // Install binary-only packages and model wheel (avoid C compilation and spacy downloader pip path).
-    this.logger.info("[mlx-audio/venv] Installing spacy and en_core_web_sm model (pre-built)...");
-    await this.run(uvBin, [
-      "pip",
-      "install",
-      "--python",
-      pythonBin,
-      "--only-binary",
-      ":all:",
-      ...BINARY_ONLY_PACKAGES,
-      SPACY_MODEL_PACKAGE,
-    ]);
-
-    // Write manifest
-    const manifest: Manifest = {
-      version: MANIFEST_VERSION,
-      packages: [...REQUIRED_PACKAGES, ...BINARY_ONLY_PACKAGES, SPACY_MODEL_PACKAGE],
-      pythonVersion: await this.getPythonVersion(pythonBin),
-      createdAt: new Date().toISOString(),
-    };
-    writeFileSync(join(this.venvDir, MANIFEST_FILE), JSON.stringify(manifest, null, 2));
+    // Quick sanity: can the synced interpreter import mlx_audio?
+    await this.runCommand(pythonBin, ["-c", "import mlx_audio"], { timeoutMs: 10000, cwd: this.runtimeProjectDir });
 
     this.logger.info("[mlx-audio/venv] Environment ready");
-    return pythonBin;
+    return {
+      pythonBin,
+      uvBin,
+      projectDir: this.runtimeProjectDir,
+      launchArgsPrefix: this.getUvRunLaunchPrefix(),
+    };
   }
 
-  /** Check if venv exists, python works, and manifest version matches. */
-  private async isReady(pythonBin: string): Promise<boolean> {
+  /** Check if environment exists, is synced to lockfile, and can import mlx_audio. */
+  private async isReady(uvBin: string, pythonBin: string): Promise<boolean> {
     if (!existsSync(pythonBin)) return false;
 
-    const manifestPath = join(this.venvDir, MANIFEST_FILE);
-    if (!existsSync(manifestPath)) return false;
-
     try {
-      const manifest: Manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-      if (manifest.version !== MANIFEST_VERSION) {
-        this.logger.info("[mlx-audio/venv] Manifest version mismatch, rebuilding...");
-        return false;
-      }
-      // Quick sanity: can python import mlx_audio?
-      await this.runCommand(pythonBin, ["-c", "import mlx_audio"], { timeoutMs: 10000 });
+      await this.run(uvBin, this.getUvSyncArgs(["--check"]));
+      await this.runCommand(pythonBin, ["-c", "import mlx_audio"], { timeoutMs: 10000, cwd: this.runtimeProjectDir });
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Find a suitable Python binary on the system. */
-  private async findPython(): Promise<string | null> {
-    for (const candidate of PYTHON_CANDIDATES) {
-      try {
-        const { stdout, stderr } = await this.runCommand(candidate, ["--version"], { timeoutMs: 5000 });
-        const version = `${stdout}\n${stderr}`.trim();
-        const match = version.match(/Python (\d+)\.(\d+)/);
-        if (match) {
-          const [, major, minor] = match;
-          const maj = parseInt(major!, 10);
-          const min = parseInt(minor!, 10);
-          if (maj === 3 && min >= 11 && min <= 13) {
-            return candidate;
-          }
-        }
-      } catch {
-        // candidate not found
-      }
-    }
-    return null;
+  private getUvSyncArgs(extraArgs: string[] = []): string[] {
+    return [
+      "sync",
+      "--project",
+      this.runtimeProjectDir,
+      "--frozen",
+      "--managed-python",
+      "--python",
+      PYTHON_VERSION,
+      "--no-dev",
+      "--no-install-project",
+      ...extraArgs,
+    ];
   }
 
-  private async getPythonVersion(pythonBin: string): Promise<string> {
-    try {
-      const { stdout, stderr } = await this.runCommand(pythonBin, ["--version"], { timeoutMs: 5000 });
-      return `${stdout}\n${stderr}`.trim() || "unknown";
-    } catch {
-      return "unknown";
+  private getUvRunLaunchPrefix(): string[] {
+    return [
+      "run",
+      "--project",
+      this.runtimeProjectDir,
+      "--frozen",
+      "--managed-python",
+      "--python",
+      PYTHON_VERSION,
+      "--no-dev",
+      "--no-install-project",
+      "--no-sync",
+      "--",
+      "python",
+    ];
+  }
+
+  private getManagedPythonBin(): string {
+    return join(this.runtimeProjectDir, ".venv", "bin", "python");
+  }
+
+  private prepareRuntimeProject(): void {
+    mkdirSync(this.runtimeProjectDir, { recursive: true });
+    const templateDir = this.resolveRuntimeTemplateDir();
+
+    for (const file of RUNTIME_FILES) {
+      const source = join(templateDir, file);
+      const target = join(this.runtimeProjectDir, file);
+      if (!existsSync(source)) {
+        throw new Error(`[mlx-audio/venv] Runtime template missing: ${source}`);
+      }
+      copyFileSync(source, target);
     }
+  }
+
+  private resolveRuntimeTemplateDir(): string {
+    let searchDir = dirname(fileURLToPath(import.meta.url));
+
+    for (let i = 0; i < 8; i++) {
+      const candidate = join(searchDir, RUNTIME_TEMPLATE_DIR);
+      const pyproject = join(candidate, "pyproject.toml");
+      const lockfile = join(candidate, "uv.lock");
+      if (existsSync(pyproject) && existsSync(lockfile)) {
+        return candidate;
+      }
+
+      const parent = join(searchDir, "..");
+      if (parent === searchDir) break;
+      searchDir = parent;
+    }
+
+    throw new Error(
+      `[mlx-audio/venv] Runtime project template not found. Expected ${RUNTIME_TEMPLATE_DIR}/pyproject.toml and uv.lock near plugin files.`,
+    );
   }
 
   private async ensureUv(): Promise<string> {

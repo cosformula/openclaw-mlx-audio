@@ -54,7 +54,7 @@ Also includes startup phase and approximate model cache download progress when w
 - Proxy starts first. The server warms up in the background when `autoStart` is enabled, otherwise it starts on first generation request or `GET /v1/models`.
 - Startup readiness requires `/v1/models` to pass health check within about 10 seconds. If not ready, the request returns unavailable and startup is retried on the next request.
 - Startup status tracks phase and approximate model cache progress (text bar + percentage). The same status appears in startup timeout error details returned to OpenClaw.
-- `pythonEnvMode: managed` (default) bootstraps `uv`, creates `~/.openclaw/mlx-audio/venv/`, and installs Python dependencies.
+- `pythonEnvMode: managed` (default) bootstraps `uv`, syncs `~/.openclaw/mlx-audio/runtime/` from bundled `pyproject.toml` and `uv.lock`, and launches with `uv run --project ...`.
 - `pythonEnvMode: external` uses `pythonExecutable` directly after validating Python 3.11-3.13 and required modules.
 - First generation may be slower due to model warmup.
 - The server runs as a background subprocess and auto-restarts on crash.

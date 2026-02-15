@@ -13,6 +13,7 @@
   },
   "files": [
     "dist/**",
+    "python-runtime/**",
     "openclaw.plugin.json",
     "skills/**",
     "README.md",

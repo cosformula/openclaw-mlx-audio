@@ -16,7 +16,7 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 ## Requirements
 
 - macOS, Apple Silicon (M1 and later)
-- Default `pythonEnvMode: managed` requires no preinstalled Python or Homebrew, the plugin bootstraps `uv` and a local Python runtime
+- Default `pythonEnvMode: managed` requires no preinstalled Python or Homebrew, the plugin bootstraps `uv` and a lockfile-managed local Python runtime
 - Optional `pythonEnvMode: external` uses your existing Python environment via `pythonExecutable`
 - OpenClaw
 
@@ -92,7 +92,7 @@ On startup, the plugin will:
 - If `autoStart: true`, warm up the mlx-audio server in the background
 - If `autoStart: false`, start the server on first `/v1/audio/speech`, `GET /v1/models`, tool `generate`, or `/mlx-tts test`
 - Require upstream `/v1/models` health to pass within about 10 seconds during startup, otherwise the request returns unavailable and startup is retried on next request
-- If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, then create `~/.openclaw/mlx-audio/venv/` and install Python dependencies
+- If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, sync `~/.openclaw/mlx-audio/runtime/` from bundled `pyproject.toml` and `uv.lock`, then launch the server via `uv run --project ...`
 - If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). During startup, `/mlx-tts status` and tool action `status` report startup phase and approximate model cache progress (text bar + percentage). If startup times out, the 503 `detail` returned to OpenClaw includes the same status snapshot. No network connection is needed after the initial download.
@@ -201,7 +201,7 @@ The proxy intercepts requests, injects configured parameters, and forwards them 
 If the downstream client disconnects before completion, the proxy cancels the upstream request immediately.
 
 The plugin also manages the server lifecycle:
-- In `managed` mode, bootstraps a local `uv` toolchain and maintains a Python virtual environment under `~/.openclaw/mlx-audio/`
+- In `managed` mode, bootstraps a local `uv` toolchain, syncs dependencies from bundled `pyproject.toml` and `uv.lock`, and runs from `~/.openclaw/mlx-audio/runtime/.venv/`
 - In `external` mode, validates the configured `pythonExecutable` and uses that environment without modifying it
 - Starts the mlx-audio server as a child process
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)

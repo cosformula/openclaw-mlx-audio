@@ -6,7 +6,7 @@
 
 - `index.ts`: 插件入口与总编排
 - `src/proxy.ts`: 对外代理（OpenAI 风格接口）
-- `src/venv-manager.ts`: Python/uv 工具链与 venv 准备
+- `src/venv-manager.ts`: Python/uv 工具链与 runtime 准备
 - `src/process-manager.ts`: `mlx_audio.server` 子进程管理
 - `src/health.ts`: 周期性健康检查与故障回调
 
@@ -45,15 +45,12 @@
 
 `venvMgr.ensure()` 的顺序：
 
-1. 快路径：`isReady()` 检查 `venv/bin/python` + `manifest.json` + `import mlx_audio`
+1. 快路径：`isReady()` 检查 `runtime/.venv/bin/python` + `uv sync --check` + `import mlx_audio`
 2. 若未就绪：
    - 确保 `~/.openclaw/mlx-audio/bin/uv` 存在，不存在则下载并解压
-   - 优先探测系统 Python 3.11-3.13
-   - 若无兼容系统 Python，执行 `uv python install 3.12`
-   - 执行 `uv venv --python ... ~/.openclaw/mlx-audio/venv`
-   - 执行 `uv pip install --python <venv python> ...`
-   - 下载 spacy 模型
-   - 写入 `manifest.json`
+   - 将插件内置 `python-runtime/pyproject.toml` 和 `python-runtime/uv.lock` 同步到 `~/.openclaw/mlx-audio/runtime/`
+   - 执行 `uv sync --project ~/.openclaw/mlx-audio/runtime --frozen --managed-python --python 3.12 --no-install-project`
+   - 通过 `uv run --project ... --no-sync -- python -m mlx_audio.server ...` 启动服务
 
 ## 5. 请求路径与阻塞点
 

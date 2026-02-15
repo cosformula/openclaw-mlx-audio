@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
 import type { MlxAudioConfig } from "./config.js";
+import { runCommand } from "./run-command.js";
 
 /** Rough memory estimates (MB) for model loading. Conservative. */
 const MODEL_MEMORY_ESTIMATES: Record<string, number> = {
@@ -30,7 +31,6 @@ const HEALTHY_UPTIME_MS = 30_000;
 
 /** Delay before restart attempt (ms). */
 const RESTART_DELAY_MS = 3_000;
-const MAX_CAPTURED_COMMAND_OUTPUT_CHARS = 16_384;
 
 export class ProcessManager extends EventEmitter {
   private proc: ChildProcess | null = null;
@@ -39,6 +39,7 @@ export class ProcessManager extends EventEmitter {
   private startedAt: number | null = null;
   private stopping = false;
   private pythonBin: string = "python3";
+  private launchArgsPrefix: string[] = [];
   private stderrBuffer: string[] = [];
   private restartBudgetExhausted = false;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
@@ -54,6 +55,13 @@ export class ProcessManager extends EventEmitter {
   /** Set the python binary path (from VenvManager). */
   setPythonBin(bin: string): void {
     this.pythonBin = bin;
+    this.launchArgsPrefix = [];
+  }
+
+  /** Configure managed mode to launch through uv run. */
+  setManagedRuntime(uvBin: string, launchArgsPrefix: string[]): void {
+    this.pythonBin = uvBin;
+    this.launchArgsPrefix = [...launchArgsPrefix];
   }
 
   /** Reset crash counter — call on config change or manual restart. */
@@ -238,106 +246,7 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
-  private runCommand(
-    cmd: string,
-    args: string[],
-    options: { timeoutMs: number; allowExitCodes?: number[] },
-  ): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null }> {
-    return new Promise((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      let timedOut = false;
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-      const allowedExitCodes = new Set(options.allowExitCodes ?? []);
-
-      const appendWithLimit = (current: string, chunk: string): string => {
-        const next = current + chunk;
-        if (next.length <= MAX_CAPTURED_COMMAND_OUTPUT_CHARS) {
-          return next;
-        }
-        return next.slice(next.length - MAX_CAPTURED_COMMAND_OUTPUT_CHARS);
-      };
-
-      const cleanup = (): void => {
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-      };
-
-      const finalizeReject = (message: string): void => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error(message));
-      };
-
-      const finalizeResolve = (code: number | null, signal: NodeJS.Signals | null): void => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({
-          stdout: stdout.trim(),
-          stderr: stderr.trim(),
-          code,
-          signal,
-        });
-      };
-
-      let proc: ChildProcess;
-      try {
-        proc = spawn(cmd, args, {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env },
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        finalizeReject(msg);
-        return;
-      }
-
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        stdout = appendWithLimit(stdout, chunk.toString());
-      });
-
-      proc.stderr?.on("data", (chunk: Buffer) => {
-        stderr = appendWithLimit(stderr, chunk.toString());
-      });
-
-      proc.on("error", (err) => {
-        finalizeReject(err.message);
-      });
-
-      proc.on("close", (code, signal) => {
-        if (timedOut) {
-          const details = (stderr || stdout).trim();
-          finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
-          return;
-        }
-
-        if (code === 0 || (typeof code === "number" && allowedExitCodes.has(code))) {
-          finalizeResolve(code, signal);
-          return;
-        }
-
-        const details = (stderr || stdout).trim();
-        finalizeReject(
-          `Command failed (${cmd} ${args.join(" ")}): code=${code ?? "unknown"}${signal ? ` signal=${signal}` : ""}${details ? `\n${details}` : ""}`,
-        );
-      });
-
-      timeoutTimer = setTimeout(() => {
-        if (settled) return;
-        timedOut = true;
-        proc.kill("SIGTERM");
-        forceKillTimer = setTimeout(() => {
-          if (!proc.killed) {
-            proc.kill("SIGKILL");
-          }
-        }, 2000);
-      }, options.timeoutMs);
-    });
-  }
+  private runCommand = runCommand;
 
   private spawn(): boolean {
     if (this.proc) {
@@ -347,7 +256,8 @@ export class ProcessManager extends EventEmitter {
     this.clearRestartTimer();
     // Use a writable directory for cwd and logs (mlx_audio.server creates a logs/ dir)
     const { dataDir, logDir } = this.ensureRuntimeDirs();
-    const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
+    const serverArgs = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
+    const args = [...this.launchArgsPrefix, ...serverArgs];
     this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 
     let proc: ChildProcess;

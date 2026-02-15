@@ -16,7 +16,7 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 ## 系统要求
 
 - macOS，Apple Silicon（M1 及以后）
-- 默认 `pythonEnvMode: managed` 无需预装 Python 或 Homebrew，插件会自举 `uv` 与本地 Python 运行时
+- 默认 `pythonEnvMode: managed` 无需预装 Python 或 Homebrew，插件会自举 `uv` 与基于 lockfile 的本地 Python 运行时
 - 可选 `pythonEnvMode: external`，通过 `pythonExecutable` 复用已有 Python 环境
 - OpenClaw
 
@@ -92,7 +92,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 - 若 `autoStart: true`，后台预热 mlx-audio 服务
 - 若 `autoStart: false`，在首次 `/v1/audio/speech`、`GET /v1/models`、tool `generate` 或 `/mlx-tts test` 时拉起服务
 - 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用，下次请求再重试启动
-- 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后创建 `~/.openclaw/mlx-audio/venv/` 并安装 Python 依赖
+- 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后根据内置 `pyproject.toml` 与 `uv.lock` 同步 `~/.openclaw/mlx-audio/runtime/`，并通过 `uv run --project ...` 启动服务
 - 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。启动阶段可通过 `/mlx-tts status` 与 tool `status` 查看启动阶段和模型缓存近似下载进度（文本进度条 + 百分比）。若启动超时，返回给 OpenClaw 的 503 `detail` 也会包含相同状态信息。模型下载完成后不再需要网络连接。
@@ -201,7 +201,7 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 如果下游客户端在响应完成前断开，代理会立即取消上游请求。
 
 插件同时管理服务生命周期：
-- `managed` 模式下，自举本地 `uv` 工具链，并维护 `~/.openclaw/mlx-audio/` 下的 Python 虚拟环境
+- `managed` 模式下，自举本地 `uv` 工具链，按内置 `pyproject.toml` 与 `uv.lock` 同步依赖，并使用 `~/.openclaw/mlx-audio/runtime/.venv/`
 - `external` 模式下，仅校验并使用 `pythonExecutable` 指向的环境，不修改用户环境
 - 以子进程方式启动 mlx-audio 服务
 - 崩溃自动重启（健康运行 30 秒后重置计数）

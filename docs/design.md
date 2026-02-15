@@ -35,7 +35,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 | 组件 | 语言 | 职责 |
 |---|---|---|
 | `index.ts` | TypeScript | 插件入口，读取配置，注册 service/tool/command |
-| `src/venv-manager.ts` | TypeScript | 在 `managed` 模式下自举 `~/.openclaw/mlx-audio/bin/uv`，创建并维护 `~/.openclaw/mlx-audio/venv/` |
+| `src/venv-manager.ts` | TypeScript | 在 `managed` 模式下自举 `~/.openclaw/mlx-audio/bin/uv`，将内置 `python-runtime/` 同步到 `~/.openclaw/mlx-audio/runtime/` 并通过锁文件维护环境 |
 | `src/process-manager.ts` | TypeScript | 启停 `mlx_audio.server` 子进程，崩溃重启与日志收集 |
 | `src/proxy.ts` | TypeScript | 处理 `/v1/audio/speech` 参数注入、上游就绪检查与转发 |
 | `src/health.ts` | TypeScript | 定时健康检查 `/v1/models`，连续失败触发重启 |
@@ -46,7 +46,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 ### 1. Service
 
 - 启动时先启动本地 proxy
-- `pythonEnvMode=managed` 时，首次初始化下载 `uv`，必要时通过 `uv python install 3.12` 安装独立 Python，再创建 venv 并安装依赖
+- `pythonEnvMode=managed` 时，首次初始化下载 `uv`，将内置 `pyproject.toml` 与 `uv.lock` 同步到 `~/.openclaw/mlx-audio/runtime/`，执行 `uv sync --frozen` 准备依赖，并通过 `uv run --project ...` 启动服务
 - `pythonEnvMode=external` 时，使用 `pythonExecutable` 指向的环境，启动前校验 Python 版本（3.11-3.13）与关键依赖可导入
 - `autoStart=true` 时后台预热所选 Python 运行时与 `mlx_audio.server`
 - `autoStart=false` 时在首个生成请求或 `GET /v1/models` 请求按需拉起 `mlx_audio.server`

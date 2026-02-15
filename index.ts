@@ -11,12 +11,12 @@ import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
 import { VenvManager } from "./src/venv-manager.js";
 import { resolveSecureOutputPath } from "./src/output-path.js";
+import { runCommand } from "./src/run-command.js";
 import {
   StartupStatusTracker,
   formatStartupStatusForDisplay,
   formatStartupStatusForError,
 } from "./src/startup-status.js";
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -60,7 +60,6 @@ const GENERATE_REQUEST_TIMEOUT_MS = 600_000;
 const MAX_AUDIO_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_ERROR_DETAIL_BYTES = 8 * 1024;
 const DEFAULT_PLUGIN_ID = "openclaw-mlx-audio";
-const MAX_CAPTURED_PROCESS_OUTPUT_CHARS = 16_384;
 const SPACY_MODEL_WHEEL_URL =
   "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl";
 const EXTERNAL_PYTHON_REQUIRED_MODULES = [
@@ -172,97 +171,6 @@ async function waitForServerHealthy(port: number): Promise<boolean> {
   return false;
 }
 
-function runCommand(
-  cmd: string,
-  args: string[],
-  options: { timeoutMs: number; env?: NodeJS.ProcessEnv },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    let timedOut = false;
-    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const appendWithLimit = (current: string, chunk: string): string => {
-      const next = current + chunk;
-      if (next.length <= MAX_CAPTURED_PROCESS_OUTPUT_CHARS) {
-        return next;
-      }
-      return next.slice(next.length - MAX_CAPTURED_PROCESS_OUTPUT_CHARS);
-    };
-
-    const cleanup = (): void => {
-      if (timeoutTimer) clearTimeout(timeoutTimer);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-    };
-
-    const finalizeReject = (message: string): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error(message));
-    };
-
-    const finalizeResolve = (): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
-    };
-
-    let proc;
-    try {
-      proc = spawn(cmd, args, {
-        stdio: ["ignore", "pipe", "pipe"],
-        env: options.env,
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      finalizeReject(msg);
-      return;
-    }
-
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      stdout = appendWithLimit(stdout, chunk.toString());
-    });
-
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      stderr = appendWithLimit(stderr, chunk.toString());
-    });
-
-    proc.on("error", (err) => {
-      finalizeReject(err.message);
-    });
-
-    proc.on("close", (code, signal) => {
-      if (timedOut) {
-        const details = (stderr || stdout).trim();
-        finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
-        return;
-      }
-      if (code === 0) {
-        finalizeResolve();
-        return;
-      }
-      const details = (stderr || stdout).trim();
-      finalizeReject(
-        `Command failed (${cmd} ${args.join(" ")}): code=${code ?? "unknown"}${signal ? ` signal=${signal}` : ""}${details ? `\n${details}` : ""}`,
-      );
-    });
-
-    timeoutTimer = setTimeout(() => {
-      if (settled) return;
-      timedOut = true;
-      proc.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => {
-        if (!proc.killed) proc.kill("SIGKILL");
-      }, 2000);
-    }, options.timeoutMs);
-  });
-}
-
 async function validateExternalPython(pythonExecutable: string, logger: Logger): Promise<void> {
   logger.info(`[mlx-audio] Validating external Python executable: ${pythonExecutable}`);
 
@@ -350,7 +258,7 @@ export default function register(api: PluginApi) {
   const cfg = resolveConfig(rawConfig);
   const logger = api.logger;
 
-  // Data dir for venv and models — ~/.openclaw/mlx-audio/
+  // Data dir for managed runtime and models (~/.openclaw/mlx-audio/)
   const dataDir = path.join(os.homedir(), ".openclaw", "mlx-audio");
   const outputDir = path.join(dataDir, "outputs");
   const tmpDir = "/tmp";
@@ -396,11 +304,11 @@ export default function register(api: PluginApi) {
     }
 
     startupStatus.markPreparingPython("Preparing managed Python environment...");
-    const pythonBin = await venvMgr.ensure();
+    const managedRuntime = await venvMgr.ensure();
     if (!serviceRunning) {
       throw new Error("Plugin service stopped during startup");
     }
-    procMgr.setPythonBin(pythonBin);
+    procMgr.setManagedRuntime(managedRuntime.uvBin, managedRuntime.launchArgsPrefix);
     pythonRuntimePrepared = true;
   }
 
@@ -691,7 +599,7 @@ export default function register(api: PluginApi) {
             `Ports: server=${cfg.port} proxy=${cfg.proxyPort}`,
             cfg.pythonEnvMode === "external"
               ? `Python: external (${cfg.pythonExecutable})`
-              : "Python: managed (~/.openclaw/mlx-audio/venv)",
+              : "Python: managed (uv.lock, ~/.openclaw/mlx-audio/runtime/.venv)",
             `Uptime: ${uptime}s | Restarts: ${status.restarts}`,
             status.lastError ? `Last error: ${status.lastError}` : "",
           ]

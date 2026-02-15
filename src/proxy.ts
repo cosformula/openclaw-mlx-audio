@@ -1,12 +1,11 @@
 /** Lightweight HTTP proxy that injects TTS preset params. */
 
-import { spawn } from "node:child_process";
 import http from "node:http";
 import type { MlxAudioConfig } from "./config.js";
 import { buildInjectedParams } from "./config.js";
+import { runCommand } from "./run-command.js";
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
-const MAX_CAPTURED_COMMAND_OUTPUT_CHARS = 16_384;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -294,104 +293,5 @@ export class TtsProxy {
     }
   }
 
-  private runCommand(
-    cmd: string,
-    args: string[],
-    options: { timeoutMs: number; allowExitCodes?: number[] },
-  ): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null }> {
-    return new Promise((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      let timedOut = false;
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-      const allowedExitCodes = new Set(options.allowExitCodes ?? []);
-
-      const appendWithLimit = (current: string, chunk: string): string => {
-        const next = current + chunk;
-        if (next.length <= MAX_CAPTURED_COMMAND_OUTPUT_CHARS) {
-          return next;
-        }
-        return next.slice(next.length - MAX_CAPTURED_COMMAND_OUTPUT_CHARS);
-      };
-
-      const cleanup = (): void => {
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-      };
-
-      const finalizeReject = (message: string): void => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error(message));
-      };
-
-      const finalizeResolve = (code: number | null, signal: NodeJS.Signals | null): void => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({
-          stdout: stdout.trim(),
-          stderr: stderr.trim(),
-          code,
-          signal,
-        });
-      };
-
-      let proc;
-      try {
-        proc = spawn(cmd, args, {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: { ...process.env },
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        finalizeReject(msg);
-        return;
-      }
-
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        stdout = appendWithLimit(stdout, chunk.toString());
-      });
-
-      proc.stderr?.on("data", (chunk: Buffer) => {
-        stderr = appendWithLimit(stderr, chunk.toString());
-      });
-
-      proc.on("error", (err) => {
-        finalizeReject(err.message);
-      });
-
-      proc.on("close", (code, signal) => {
-        if (timedOut) {
-          const details = (stderr || stdout).trim();
-          finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
-          return;
-        }
-
-        if (code === 0 || (typeof code === "number" && allowedExitCodes.has(code))) {
-          finalizeResolve(code, signal);
-          return;
-        }
-
-        const details = (stderr || stdout).trim();
-        finalizeReject(
-          `Command failed (${cmd} ${args.join(" ")}): code=${code ?? "unknown"}${signal ? ` signal=${signal}` : ""}${details ? `\n${details}` : ""}`,
-        );
-      });
-
-      timeoutTimer = setTimeout(() => {
-        if (settled) return;
-        timedOut = true;
-        proc.kill("SIGTERM");
-        forceKillTimer = setTimeout(() => {
-          if (!proc.killed) {
-            proc.kill("SIGKILL");
-          }
-        }, 2000);
-      }, options.timeoutMs);
-    });
-  }
+  private runCommand = runCommand;
 }
