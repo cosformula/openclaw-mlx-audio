@@ -160,8 +160,46 @@ export default function register(api: PluginApi) {
       procMgr.restart().catch((err) => logger.error(`[mlx-audio] Restart failed: ${err}`));
     }
   });
+  let ensureServerPromise: Promise<void> | null = null;
+
+  async function ensureServerReady(): Promise<void> {
+    if (procMgr.isRunning()) {
+      health.start();
+      return;
+    }
+
+    if (ensureServerPromise) {
+      await ensureServerPromise;
+      return;
+    }
+
+    ensureServerPromise = (async () => {
+      // Lazy setup Python venv + dependencies on first actual server start.
+      const pythonBin = await venvMgr.ensure();
+      procMgr.setPythonBin(pythonBin);
+      await procMgr.start();
+      const healthy = await waitForServerHealthy(cfg.port);
+      if (!healthy) {
+        logger.warn("[mlx-audio] Server not healthy after startup, continuing anyway...");
+      }
+      health.start();
+    })();
+
+    try {
+      await ensureServerPromise;
+    } finally {
+      ensureServerPromise = null;
+    }
+  }
 
   async function generateAudioViaProxy(text: string, outputPath?: string): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }> {
+    try {
+      await ensureServerReady();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: `Failed to start mlx-audio server: ${msg}` };
+    }
+
     return new Promise((resolve) => {
       const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
       const req = http.request(
@@ -216,21 +254,12 @@ export default function register(api: PluginApi) {
   api.registerService({
     id: "mlx-audio",
     start: async () => {
-      // Auto-setup Python venv + dependencies on first run
-      const pythonBin = await venvMgr.ensure();
-      procMgr.setPythonBin(pythonBin);
-
       if (cfg.autoStart) {
-        await procMgr.start();
-        const healthy = await waitForServerHealthy(cfg.port);
-        if (!healthy) {
-          logger.warn("[mlx-audio] Server not healthy after startup, continuing anyway...");
-        }
+        await ensureServerReady();
+      } else {
+        logger.info("[mlx-audio] autoStart=false, server will start on first generate/test request");
       }
       await proxy.start();
-      if (cfg.autoStart) {
-        health.start();
-      }
       logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
     },
     stop: async () => {
