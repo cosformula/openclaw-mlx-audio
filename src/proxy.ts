@@ -96,7 +96,7 @@ export class TtsProxy {
         merged.input = parsed.input;
 
         const upstreamBody = JSON.stringify(merged);
-        this.forwardToUpstream(upstreamBody, res);
+        this.forwardToUpstream(req, upstreamBody, res);
       } catch (err) {
         this.logger.error(`[mlx-audio] Proxy parse error: ${err}`);
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -105,16 +105,20 @@ export class TtsProxy {
     });
   }
 
-  private forwardToUpstream(body: string, res: http.ServerResponse): void {
+  private forwardToUpstream(req: http.IncomingMessage, body: string, res: http.ServerResponse): void {
+    const headers: http.OutgoingHttpHeaders = { ...req.headers };
+    delete headers.host;
+    delete headers["content-length"];
+    delete headers["transfer-encoding"];
+    headers["content-type"] = "application/json";
+    headers["content-length"] = Buffer.byteLength(body);
+
     const options: http.RequestOptions = {
       hostname: "127.0.0.1",
       port: this.cfg.port,
       path: "/v1/audio/speech",
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(body),
-      },
+      headers,
     };
 
     const upstream = http.request(options, (upstreamRes) => {

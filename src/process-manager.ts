@@ -38,6 +38,7 @@ export class ProcessManager extends EventEmitter {
   private stopping = false;
   private pythonBin: string = "python3";
   private stderrBuffer: string[] = [];
+  private restartBudgetExhausted = false;
 
   constructor(
     private cfg: MlxAudioConfig,
@@ -55,6 +56,7 @@ export class ProcessManager extends EventEmitter {
   resetCrashCounter(): void {
     this.restarts = 0;
     this.lastError = null;
+    this.restartBudgetExhausted = false;
     this.logger.info("[mlx-audio] Crash counter reset");
   }
 
@@ -105,7 +107,19 @@ export class ProcessManager extends EventEmitter {
     this.startedAt = null;
   }
 
-  async restart(): Promise<void> {
+  async restart(options?: { resetCrashCounter?: boolean; reason?: string }): Promise<void> {
+    const resetCounter = options?.resetCrashCounter ?? true;
+    const reason = options?.reason ?? "manual restart";
+
+    if (!resetCounter) {
+      if (!this.consumeRestartBudget(reason)) {
+        return;
+      }
+      await this.stop();
+      await this.start();
+      return;
+    }
+
     await this.stop();
     this.resetCrashCounter();
     await this.start();
@@ -329,18 +343,35 @@ export class ProcessManager extends EventEmitter {
       if (uptime >= HEALTHY_UPTIME_MS) {
         this.logger.info(`[mlx-audio] Process was healthy (${Math.round(uptime / 1000)}s uptime), resetting crash counter`);
         this.restarts = 0;
+        this.restartBudgetExhausted = false;
+        this.lastError = null;
       }
 
-      if (this.cfg.restartOnCrash && this.restarts < this.cfg.maxRestarts) {
-        this.restarts++;
-        this.logger.info(`[mlx-audio] Restarting (attempt ${this.restarts}/${this.cfg.maxRestarts})...`);
-        setTimeout(() => this.spawn(), RESTART_DELAY_MS);
+      if (this.cfg.restartOnCrash) {
+        if (this.consumeRestartBudget("after crash")) {
+          setTimeout(() => this.spawn(), RESTART_DELAY_MS);
+        }
       } else if (!this.stopping) {
-        this.lastError = `Server crashed ${this.restarts} times, not restarting. Check logs above for errors.`;
+        this.lastError = "Server exited and restartOnCrash is disabled.";
         this.logger.error(`[mlx-audio] ${this.lastError}`);
-        this.emit("max-restarts");
       }
     });
+    return true;
+  }
+
+  private consumeRestartBudget(reason: string): boolean {
+    if (this.restartBudgetExhausted) {
+      return false;
+    }
+    if (this.restarts >= this.cfg.maxRestarts) {
+      this.restartBudgetExhausted = true;
+      this.lastError = `Restart limit reached (${this.cfg.maxRestarts}). Last trigger: ${reason}.`;
+      this.logger.error(`[mlx-audio] ${this.lastError}`);
+      this.emit("max-restarts");
+      return false;
+    }
+    this.restarts++;
+    this.logger.info(`[mlx-audio] Restarting (${reason}, attempt ${this.restarts}/${this.cfg.maxRestarts})...`);
     return true;
   }
 }

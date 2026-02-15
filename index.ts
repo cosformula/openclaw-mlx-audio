@@ -157,7 +157,9 @@ export default function register(api: PluginApi) {
   const health = new HealthChecker(cfg.port, cfg.healthCheckIntervalMs, logger, () => {
     if (cfg.restartOnCrash && procMgr.isRunning()) {
       logger.warn("[mlx-audio] Server unhealthy, restarting...");
-      procMgr.restart().catch((err) => logger.error(`[mlx-audio] Restart failed: ${err}`));
+      procMgr
+        .restart({ resetCrashCounter: false, reason: "health check failures" })
+        .catch((err) => logger.error(`[mlx-audio] Restart failed: ${err}`));
     }
   });
   let ensureServerPromise: Promise<void> | null = null;
