@@ -37,16 +37,28 @@ TTS models supported by mlx-audio, sorted by memory usage:
 
 The default model is Qwen3-TTS-0.6B-Base with Chinese as the default language.
 
+### Qwen3-TTS Model Variants
+
+Qwen3-TTS comes in three variants with different capabilities:
+
+| Variant | Description |
+|---|---|
+| **Base** | Foundation model. Supports voice cloning from 3-second reference audio. Can be fine-tuned. |
+| **VoiceDesign** | Generates voices from natural language descriptions (e.g. "a deep male voice with a British accent"). Does not accept reference audio. |
+| **CustomVoice** | Provides 9 preset voices with instruction-based style control. |
+
+Currently, mlx-community offers MLX-converted versions of 0.6B-Base and 1.7B-VoiceDesign.
+
 ### Selection Guide
 
 By available memory:
 
 - **8 GB**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory (SIGKILL).
-- **16 GB and above**: All models listed above are viable. 1.7B-VoiceDesign adds voice cloning support.
+- **16 GB and above**: All models listed above are viable.
 
 By language:
 
-- **Chinese**: Qwen3-TTS series (0.6B-Base or 1.7B-VoiceDesign). Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
+- **Chinese**: Qwen3-TTS series. Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
 - **English**: Kokoro-82M has the smallest footprint and lowest latency.
 - **Multilingual**: Chatterbox covers 16 languages at ~3.5 GB memory.
 
@@ -75,7 +87,7 @@ Kokoro includes 50+ preset voices:
 | Chinese male | `zm_yunxi` |
 | Japanese | `jf_alpha`, `jm_kumo` |
 
-Qwen3-TTS uses named voices (e.g. `Chelsie`) and supports voice cloning via reference audio.
+Qwen3-TTS Base clones voices from reference audio (`refAudio`). VoiceDesign generates voices from natural language descriptions (`instruct`).
 
 When not specified, models use their default voice.
 
@@ -158,8 +170,9 @@ All fields are optional:
 | `speed` | `1.0` | Speech speed multiplier |
 | `langCode` | `z` | Language code |
 | `voice` | model default | Voice name |
-| `refAudio` | | Reference audio path (voice cloning, 1.7B VoiceDesign only) |
+| `refAudio` | | Reference audio path (voice cloning, Base models only) |
 | `refText` | | Transcript of reference audio |
+| `instruct` | | Voice description text (VoiceDesign models only) |
 | `temperature` | `0.7` | Generation temperature |
 | `autoStart` | `true` | Start with OpenClaw |
 | `healthCheckIntervalMs` | `30000` | Health check interval in ms |

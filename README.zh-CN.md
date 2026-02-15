@@ -37,16 +37,28 @@ mlx-audio 支持以下 TTS 模型，按内存占用升序排列：
 
 本插件默认使用 Qwen3-TTS-0.6B-Base，默认语言为中文。
 
+### Qwen3-TTS 模型区别
+
+Qwen3-TTS 有三个变体，功能不同：
+
+| 变体 | 说明 |
+|---|---|
+| **Base** | 基础模型，支持通过 3 秒参考音频进行声音克隆，可用于微调 |
+| **VoiceDesign** | 根据自然语言描述生成音色（如"低沉的男声，带英式口音"），不接受参考音频 |
+| **CustomVoice** | 提供 9 种预设音色，支持通过指令控制语气和风格 |
+
+目前 mlx-community 提供了 0.6B-Base 和 1.7B-VoiceDesign 的 MLX 转换版本。
+
 ### 选型参考
 
 根据可用内存选择模型：
 
 - **8 GB**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止（SIGKILL）。
-- **16 GB 及以上**：所有模型均可运行。需要声音克隆功能可选 1.7B-VoiceDesign。
+- **16 GB 及以上**：所有模型均可运行。
 
 根据语言选择模型：
 
-- **中文**：Qwen3-TTS 系列（0.6B-Base 或 1.7B-VoiceDesign）。Kokoro 支持中文但合成效果不如 Qwen3-TTS。
+- **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
 - **英语**：Kokoro-82M 体积最小，延迟最低。
 - **多语言**：Chatterbox 覆盖 16 种语言，内存占用约 3.5 GB。
 
@@ -75,7 +87,7 @@ Kokoro 内置 50+ 预设音色：
 | 中文男声 | `zm_yunxi` |
 | 日语 | `jf_alpha`, `jm_kumo` |
 
-Qwen3-TTS 通过名称指定音色（如 `Chelsie`），也支持通过参考音频进行声音克隆。
+Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通过自然语言描述（`instruct`）生成音色。
 
 未指定时使用模型默认音色。
 
@@ -158,8 +170,9 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 | `speed` | `1.0` | 语速倍率 |
 | `langCode` | `z` | 语言代码 |
 | `voice` | 模型默认值 | 音色名称 |
-| `refAudio` | | 参考音频路径（声音克隆，仅 1.7B VoiceDesign） |
+| `refAudio` | | 参考音频路径（声音克隆，仅 Base 模型） |
 | `refText` | | 参考音频对应文字 |
+| `instruct` | | 音色描述文本（仅 VoiceDesign 模型） |
 | `temperature` | `0.7` | 生成温度 |
 | `autoStart` | `true` | 随 OpenClaw 自动启动 |
 | `healthCheckIntervalMs` | `30000` | 健康检查间隔（毫秒） |
