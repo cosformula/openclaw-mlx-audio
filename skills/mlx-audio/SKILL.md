@@ -19,7 +19,7 @@ Generate speech locally on Apple Silicon using mlx-audio. No API key, no cloud d
 }
 ```
 
-Returns path to generated audio file. `outputPath` is restricted to `/tmp` or `~/.openclaw/mlx-audio/outputs`.
+Returns path to generated audio file. `outputPath` is restricted to `/tmp` or `~/.openclaw/mlx-audio/outputs`, and symbolic-link path segments are rejected.
 
 ### Check Status
 
@@ -50,7 +50,7 @@ Returns server status, loaded model, uptime, and config.
 ## Notes
 
 - Audio is generated locally. No data leaves the machine.
-- Proxy starts first. The server warms up in the background when `autoStart` is enabled, otherwise it starts on first generation request.
+- Proxy starts first. The server warms up in the background when `autoStart` is enabled, otherwise it starts on first generation request or `GET /v1/models`.
 - First generation may be slower due to model warmup.
 - The server runs as a background subprocess and auto-restarts on crash.
 - Config is set in `openclaw.json` under `plugins.entries.openclaw-mlx-audio.config`. Model, language, and voice changes require a gateway restart.

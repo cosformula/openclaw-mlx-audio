@@ -104,3 +104,50 @@ test("stop resets failure state", async () => {
   assert.equal(await checker.check(), true);
   assert.equal(infos.length, 0);
 });
+
+test("check reuses the in-flight probe for concurrent calls", async () => {
+  const { logger } = createLoggerStore();
+  const checker = new HealthChecker(19280, 1000, logger, () => {
+    throw new Error("onUnhealthy should not be called");
+  });
+
+  let pingCalls = 0;
+  (checker as unknown as { ping: () => Promise<boolean> }).ping = async () => {
+    pingCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return true;
+  };
+
+  const [a, b, c] = await Promise.all([checker.check(), checker.check(), checker.check()]);
+  assert.equal(a, true);
+  assert.equal(b, true);
+  assert.equal(c, true);
+  assert.equal(pingCalls, 1);
+});
+
+test("start schedules the next check only after the previous one completes", async () => {
+  const { logger } = createLoggerStore();
+  const checker = new HealthChecker(19280, 5, logger, () => {
+    throw new Error("onUnhealthy should not be called");
+  });
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let pingCalls = 0;
+  (checker as unknown as { ping: () => Promise<boolean> }).ping = async () => {
+    pingCalls += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    inFlight -= 1;
+    return true;
+  };
+
+  checker.start();
+  await new Promise((resolve) => setTimeout(resolve, 110));
+  checker.stop();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.ok(pingCalls >= 2);
+  assert.equal(maxInFlight, 1);
+});

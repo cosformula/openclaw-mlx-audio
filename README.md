@@ -158,7 +158,7 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 On startup, the plugin will:
 - Start a proxy on port 19281
 - If `autoStart: true`, warm up the mlx-audio server in the background
-- If `autoStart: false`, start the server on first `/v1/audio/speech`, tool `generate`, or `/mlx-tts test`
+- If `autoStart: false`, start the server on first `/v1/audio/speech`, `GET /v1/models`, tool `generate`, or `/mlx-tts test`
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
 
@@ -196,7 +196,7 @@ OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silico
 
 OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional parameters required by mlx-audio (full model ID, language code, etc.) are not part of the OpenAI API specification.
 
-The proxy intercepts requests, injects configured parameters, ensures the upstream server is ready for `/v1/audio/speech`, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
+The proxy intercepts requests, injects configured parameters, ensures the upstream server is ready for `/v1/audio/speech` and `GET /v1/models`, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
 
 The plugin also manages the server lifecycle:
 - Creates and maintains a Python virtual environment
@@ -204,7 +204,7 @@ The plugin also manages the server lifecycle:
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
 - Checks available memory before starting; detects OOM kills
-- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`
+- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`, verifies real paths, and rejects symbolic-link segments
 
 ## Troubleshooting
 

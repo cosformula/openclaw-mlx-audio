@@ -3,7 +3,9 @@
 import http from "node:http";
 
 export class HealthChecker {
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private running = false;
+  private inFlightCheck: Promise<boolean> | null = null;
   private consecutive_failures = 0;
 
   constructor(
@@ -14,19 +16,42 @@ export class HealthChecker {
   ) {}
 
   start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => this.check(), this.intervalMs);
+    if (this.running) return;
+    this.running = true;
+    this.scheduleNextCheck();
   }
 
   stop(): void {
+    this.running = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     this.consecutive_failures = 0;
   }
 
   async check(): Promise<boolean> {
+    if (this.inFlightCheck) {
+      return this.inFlightCheck;
+    }
+
+    this.inFlightCheck = this.performCheck().finally(() => {
+      this.inFlightCheck = null;
+    });
+    return this.inFlightCheck;
+  }
+
+  private scheduleNextCheck(): void {
+    if (!this.running) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.check().finally(() => {
+        this.scheduleNextCheck();
+      });
+    }, this.intervalMs);
+  }
+
+  private async performCheck(): Promise<boolean> {
     try {
       const ok = await this.ping();
       if (ok) {

@@ -236,6 +236,39 @@ test("TtsProxy waits for ensureUpstreamReady on /v1/audio/speech", async () => {
   }
 });
 
+test("TtsProxy waits for ensureUpstreamReady on /v1/models", async () => {
+  let upstreamHits = 0;
+  const upstream = await createUpstream((req, res) => {
+    upstreamHits += 1;
+    assert.equal(req.method, "GET");
+    assert.equal(req.url, "/v1/models");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ data: ["model-a"] }));
+  });
+
+  const proxyPort = await getFreePort();
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig({ port: upstream.port, proxyPort });
+  let ensureCalls = 0;
+  const proxy = new TtsProxy(cfg, logger, async () => {
+    ensureCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+
+  try {
+    await proxy.start();
+    const response = await request(proxyPort, "GET", "/v1/models");
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(ensureCalls, 1);
+    assert.equal(upstreamHits, 1);
+    assert.deepEqual(JSON.parse(response.body), { data: ["model-a"] });
+  } finally {
+    await proxy.stop();
+    await closeServer(upstream.server);
+  }
+});
+
 test("TtsProxy returns 503 when ensureUpstreamReady fails", async () => {
   let upstreamHits = 0;
   const upstream = await createUpstream((_req, res) => {

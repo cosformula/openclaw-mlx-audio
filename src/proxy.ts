@@ -59,14 +59,10 @@ export class TtsProxy {
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // Only handle POST /v1/audio/speech
-    if (req.method !== "POST" || req.url !== "/v1/audio/speech") {
-      // Pass through other requests directly to upstream
-      this.proxyRaw(req, res);
-      return;
-    }
+    const isSpeechRequest = req.method === "POST" && req.url === "/v1/audio/speech";
+    const isModelsRequest = req.method === "GET" && req.url === "/v1/models";
 
-    if (this.ensureUpstreamReady) {
+    if (this.ensureUpstreamReady && (isSpeechRequest || isModelsRequest)) {
       try {
         await this.ensureUpstreamReady();
       } catch (err: unknown) {
@@ -76,6 +72,12 @@ export class TtsProxy {
         res.end(JSON.stringify({ error: "mlx-audio server unavailable", detail: msg }));
         return;
       }
+    }
+
+    // Only handle POST /v1/audio/speech for request body injection.
+    if (!isSpeechRequest) {
+      this.proxyRaw(req, res);
+      return;
     }
 
     const chunks: Buffer[] = [];

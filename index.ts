@@ -10,6 +10,7 @@ import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
 import { VenvManager } from "./src/venv-manager.js";
+import { writeOutputFileSecure } from "./src/output-path.js";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -119,11 +120,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPathWithin(baseDir: string, candidatePath: string): boolean {
-  const relative = path.relative(baseDir, candidatePath);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
 function pingServer(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get({ hostname: "127.0.0.1", port, path: "/v1/models", timeout: 5000 }, (res) => {
@@ -158,6 +154,7 @@ export default function register(api: PluginApi) {
   const outputDir = path.join(dataDir, "outputs");
   const tmpDir = "/tmp";
   const systemTmpDir = path.resolve(os.tmpdir());
+  const homeDir = os.homedir();
   const venvMgr = new VenvManager(dataDir, logger);
 
   const procMgr = new ProcessManager(cfg, logger);
@@ -216,31 +213,6 @@ export default function register(api: PluginApi) {
 
   const proxy = new TtsProxy(cfg, logger, ensureServerReady);
 
-  function resolveOutputPath(outputPath?: string): string {
-    if (!outputPath) {
-      return path.join(tmpDir, `mlx-audio-${Date.now()}.mp3`);
-    }
-
-    const trimmed = outputPath.trim();
-    if (!trimmed) {
-      throw new Error("outputPath must be a non-empty string");
-    }
-
-    const expanded = trimmed === "~"
-      ? os.homedir()
-      : trimmed.startsWith("~/")
-        ? path.join(os.homedir(), trimmed.slice(2))
-        : trimmed;
-    const resolvedPath = path.isAbsolute(expanded)
-      ? path.resolve(expanded)
-      : path.resolve(outputDir, expanded);
-
-    if (!isPathWithin(tmpDir, resolvedPath) && !isPathWithin(systemTmpDir, resolvedPath) && !isPathWithin(outputDir, resolvedPath)) {
-      throw new Error(`outputPath must be under ${tmpDir} or ${outputDir}`);
-    }
-    return resolvedPath;
-  }
-
   async function generateAudioViaProxy(text: string, outputPath?: string): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }> {
     try {
       await ensureServerReady();
@@ -276,13 +248,13 @@ export default function register(api: PluginApi) {
             }
 
             try {
-              const outFile = resolveOutputPath(outputPath);
-              const outDir = path.dirname(outFile);
-              if (!fs.existsSync(outDir)) {
-                fs.mkdirSync(outDir, { recursive: true });
-              }
-              fs.writeFileSync(outFile, payload);
-              resolve({ ok: true, path: outFile, bytes: payload.length });
+              const writeResult = writeOutputFileSecure(payload, outputPath, {
+                tmpDir,
+                systemTmpDir,
+                outputDir,
+                homeDir,
+              });
+              resolve({ ok: true, path: writeResult.path, bytes: writeResult.bytes });
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : String(err);
               resolve({ ok: false, error: `Failed to write audio file: ${msg}` });
@@ -312,7 +284,7 @@ export default function register(api: PluginApi) {
             logger.error(`[mlx-audio] Background warmup failed: ${msg}`);
           });
         } else {
-          logger.info("[mlx-audio] autoStart=false, server will start on first generate/test request");
+          logger.info("[mlx-audio] autoStart=false, server will start on first speech/models/generate/test request");
         }
         logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
       } catch (err) {
