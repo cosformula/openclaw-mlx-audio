@@ -4,7 +4,16 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 /** All packages needed for Kokoro TTS — mlx-audio doesn't declare them all. */
@@ -25,6 +34,11 @@ const BINARY_ONLY_PACKAGES = ["spacy"];
 
 /** Post-install: download spacy English model. */
 const SPACY_MODEL = "en_core_web_sm";
+const PYTHON_VERSION = "3.12";
+const UV_RELEASE_BASE_URL = "https://github.com/astral-sh/uv/releases/latest/download";
+const UV_DOWNLOAD_TIMEOUT_MS = 60_000;
+const UV_DOWNLOAD_MAX_ATTEMPTS = 3;
+const UV_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_500;
 
 /** Minimum Python version (3.11), maximum (3.13). 3.14 breaks webrtcvad/pkg_resources. */
 const PYTHON_CANDIDATES = ["python3.12", "python3.11", "python3.13", "python3"];
@@ -42,11 +56,17 @@ interface Manifest {
 const MANIFEST_VERSION = 3; // Bump when deps change to force reinstall.
 
 export class VenvManager {
+  private dataDir: string;
   private venvDir: string;
+  private binDir: string;
+  private uvBin: string;
   private logger: { info: (m: string) => void; error: (m: string) => void; warn: (m: string) => void };
 
   constructor(dataDir: string, logger: VenvManager["logger"]) {
+    this.dataDir = dataDir;
     this.venvDir = join(dataDir, "venv");
+    this.binDir = join(dataDir, "bin");
+    this.uvBin = join(this.binDir, "uv");
     this.logger = logger;
   }
 
@@ -61,33 +81,31 @@ export class VenvManager {
 
     this.logger.info("[mlx-audio/venv] Setting up Python environment (first run, may take 1-2 minutes)...");
 
+    const uvBin = await this.ensureUv();
+
     // Find suitable python
     const systemPython = await this.findPython();
-    if (!systemPython) {
-      throw new Error(
-        "[mlx-audio] No compatible Python found (need 3.11-3.13). Install with: brew install python@3.12"
-      );
+    let pythonSpec = PYTHON_VERSION;
+    if (systemPython) {
+      this.logger.info(`[mlx-audio/venv] Using system Python: ${systemPython}`);
+      pythonSpec = systemPython;
+    } else {
+      this.logger.info(`[mlx-audio/venv] Installing Python ${PYTHON_VERSION}...`);
+      await this.run(uvBin, ["python", "install", PYTHON_VERSION]);
     }
-    this.logger.info(`[mlx-audio/venv] Using system Python: ${systemPython}`);
 
-    // Create venv
-    if (!existsSync(this.venvDir)) {
-      mkdirSync(this.venvDir, { recursive: true });
-    }
-    await this.run(systemPython, ["-m", "venv", "--clear", this.venvDir]);
-
-    // Upgrade pip
-    await this.pip(pythonBin, ["install", "--upgrade", "pip"], "Upgrading pip");
+    // Create venv (always recreated when not ready)
+    this.logger.info("[mlx-audio/venv] Creating virtual environment...");
+    rmSync(this.venvDir, { recursive: true, force: true });
+    await this.run(uvBin, ["venv", "--python", pythonSpec, this.venvDir]);
 
     // Install main packages
-    await this.pip(pythonBin, ["install", ...REQUIRED_PACKAGES], "Installing mlx-audio + dependencies");
+    this.logger.info("[mlx-audio/venv] Installing mlx-audio...");
+    await this.run(uvBin, ["pip", "install", "--python", pythonBin, ...REQUIRED_PACKAGES]);
 
     // Install binary-only packages (avoid C compilation)
-    await this.pip(
-      pythonBin,
-      ["install", "--only-binary", ":all:", ...BINARY_ONLY_PACKAGES],
-      "Installing spacy (pre-built)"
-    );
+    this.logger.info("[mlx-audio/venv] Installing spacy (pre-built)...");
+    await this.run(uvBin, ["pip", "install", "--python", pythonBin, "--only-binary", ":all:", ...BINARY_ONLY_PACKAGES]);
 
     // Download spacy English model
     this.logger.info("[mlx-audio/venv] Downloading spacy English model...");
@@ -158,16 +176,92 @@ export class VenvManager {
     }
   }
 
-  private async pip(pythonBin: string, args: string[], label: string): Promise<void> {
-    this.logger.info(`[mlx-audio/venv] ${label}...`);
-    await this.run(pythonBin, ["-m", "pip", "--disable-pip-version-check", ...args]);
+  private async ensureUv(): Promise<string> {
+    if (existsSync(this.uvBin)) {
+      try {
+        chmodSync(this.uvBin, 0o755);
+      } catch {
+        // ignore chmod failures for existing binaries
+      }
+      return this.uvBin;
+    }
+
+    mkdirSync(this.binDir, { recursive: true });
+
+    const target = this.getUvTarget();
+    const url = `${UV_RELEASE_BASE_URL}/uv-${target}.tar.gz`;
+    const tempDir = mkdtempSync(join(this.dataDir, "uv-download-"));
+    const archivePath = join(tempDir, "uv.tar.gz");
+    const extractDir = join(tempDir, "extract");
+
+    this.logger.info("[mlx-audio/venv] Downloading uv...");
+
+    try {
+      const archive = await this.downloadUvArchive(url);
+      writeFileSync(archivePath, archive);
+      mkdirSync(extractDir, { recursive: true });
+      await this.run("/usr/bin/tar", ["-xzf", archivePath, "-C", extractDir]);
+
+      const extractedUv = join(extractDir, `uv-${target}`, "uv");
+      if (!existsSync(extractedUv)) {
+        throw new Error(`Extracted uv binary not found at ${extractedUv}`);
+      }
+
+      copyFileSync(extractedUv, this.uvBin);
+      chmodSync(this.uvBin, 0o755);
+      return this.uvBin;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`[mlx-audio/venv] Failed to bootstrap uv: ${msg}`);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  private getUvTarget(): string {
+    return process.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+  }
+
+  private async downloadUvArchive(url: string): Promise<Buffer> {
+    let lastErr: Error | null = null;
+
+    for (let attempt = 1; attempt <= UV_DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, UV_DOWNLOAD_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return Buffer.from(await response.arrayBuffer());
+      } catch (err: unknown) {
+        const base = err instanceof Error ? err.message : String(err);
+        const message = timedOut ? `timed out after ${UV_DOWNLOAD_TIMEOUT_MS}ms` : base;
+        lastErr = new Error(`Attempt ${attempt}/${UV_DOWNLOAD_MAX_ATTEMPTS}: ${message}`);
+
+        if (attempt < UV_DOWNLOAD_MAX_ATTEMPTS) {
+          this.logger.warn(`[mlx-audio/venv] uv download failed (${message}), retrying...`);
+          const delayMs = UV_DOWNLOAD_RETRY_BASE_DELAY_MS * attempt;
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      } finally {
+        clearTimeout(timeoutTimer);
+      }
+    }
+
+    throw lastErr ?? new Error("uv download failed");
   }
 
   private async run(cmd: string, args: string[]): Promise<void> {
     try {
       await this.runCommand(cmd, args, {
         timeoutMs: 600000, // 10 min max
-        env: { ...process.env, VIRTUAL_ENV: this.venvDir, PATH: `${join(this.venvDir, "bin")}:${process.env.PATH}` },
+        env: process.env,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
