@@ -1,5 +1,5 @@
 {
-  "name": "@cosformula/mlx-audio",
+  "name": "@cosformula/openclaw-mlx-audio",
   "version": "0.1.0",
   "description": "OpenClaw local TTS plugin powered by mlx-audio — zero API key, zero cloud dependency",
   "type": "module",
@@ -17,11 +17,19 @@
     "LICENSE"
   ],
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "author": "CCC Games <dev@contextcross.com>",
   "license": "MIT",
-  "keywords": ["openclaw", "tts", "mlx", "apple-silicon", "local"],
+  "keywords": [
+    "openclaw",
+    "tts",
+    "mlx",
+    "apple-silicon",
+    "local"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/cosformula/openclaw-mlx-audio.git"
