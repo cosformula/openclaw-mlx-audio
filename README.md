@@ -1,4 +1,4 @@
-# @cosformula/openclaw-mlx-audio
+# openclaw-mlx-audio
 
 **The missing local TTS for OpenClaw on Apple Silicon.**
 
