@@ -17,6 +17,7 @@ export class TtsProxy {
   constructor(
     private cfg: MlxAudioConfig,
     private logger: { info: (m: string) => void; error: (m: string) => void },
+    private ensureUpstreamReady?: () => Promise<void>,
   ) {}
 
   async start(): Promise<void> {
@@ -24,7 +25,14 @@ export class TtsProxy {
     this.assertProxyPortAvailable();
 
     this.server = http.createServer((req, res) => {
-      this.handleRequest(req, res);
+      void this.handleRequest(req, res).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`[mlx-audio] Proxy request failed: ${msg}`);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Proxy internal error", detail: msg }));
+        }
+      });
     });
 
     return new Promise((resolve, reject) => {
@@ -49,12 +57,24 @@ export class TtsProxy {
     });
   }
 
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     // Only handle POST /v1/audio/speech
     if (req.method !== "POST" || req.url !== "/v1/audio/speech") {
       // Pass through other requests directly to upstream
       this.proxyRaw(req, res);
       return;
+    }
+
+    if (this.ensureUpstreamReady) {
+      try {
+        await this.ensureUpstreamReady();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(`[mlx-audio] Upstream not ready: ${msg}`);
+        res.writeHead(503, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "mlx-audio server unavailable", detail: msg }));
+        return;
+      }
     }
 
     const chunks: Buffer[] = [];

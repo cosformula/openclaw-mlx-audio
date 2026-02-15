@@ -156,9 +156,9 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 ### 4. 重启 OpenClaw
 
 插件启动时会自动完成以下步骤：
-- 在 `~/.openclaw/mlx-audio/venv/` 创建 Python 虚拟环境并安装依赖
-- 在端口 19280 启动 mlx-audio 服务
 - 在端口 19281 启动代理服务
+- 若 `autoStart: true`，后台预热 mlx-audio 服务
+- 若 `autoStart: false`，在首次 `/v1/audio/speech`、tool `generate` 或 `/mlx-tts test` 时拉起服务
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
 
@@ -181,7 +181,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 | `topP` | `0.95` | Nucleus 采样阈值，需 > 0 且 <= 1 |
 | `topK` | `40` | Top-k 采样截断，整数 >= 1 |
 | `repetitionPenalty` | `1.0` | 重复惩罚系数，需 > 0 |
-| `autoStart` | `true` | 随 OpenClaw 自动启动 |
+| `autoStart` | `true` | OpenClaw 启动时后台预热服务 |
 | `healthCheckIntervalMs` | `30000` | 健康检查间隔（毫秒） |
 | `restartOnCrash` | `true` | 崩溃后自动重启 |
 | `maxRestarts` | `3` | 最大连续重启次数 |
@@ -196,7 +196,7 @@ OpenClaw tts() → 代理 (:19281) → mlx_audio.server (:19280) → Apple Silic
 
 OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需要的额外参数（完整模型 ID、语言代码等）不在 OpenAI API 规范中。
 
-代理拦截请求，注入配置参数后转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
+代理拦截请求，注入配置参数，在 `/v1/audio/speech` 路径先确认上游服务可用，再转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
 
 插件同时管理服务生命周期：
 - 创建和维护 Python 虚拟环境
@@ -204,6 +204,7 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 - 崩溃自动重启（健康运行 30 秒后重置计数）
 - 启动前清理端口上的残留进程
 - 启动前检查可用内存，识别 OOM kill
+- 限制 tool 输出路径仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`
 
 ## 故障排查
 

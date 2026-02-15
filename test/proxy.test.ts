@@ -185,6 +185,91 @@ test("TtsProxy injects config params for /v1/audio/speech", async () => {
   }
 });
 
+test("TtsProxy waits for ensureUpstreamReady on /v1/audio/speech", async () => {
+  let upstreamHits = 0;
+  const upstream = await createUpstream((req, res) => {
+    upstreamHits += 1;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(Buffer.concat(chunks));
+    });
+  });
+
+  const proxyPort = await getFreePort();
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig({ port: upstream.port, proxyPort });
+  let ensureCalls = 0;
+  const proxy = new TtsProxy(cfg, logger, async () => {
+    ensureCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  });
+
+  try {
+    await proxy.start();
+    const response = await request(
+      proxyPort,
+      "POST",
+      "/v1/audio/speech",
+      JSON.stringify({ input: "hello from ensure" }),
+      { "Content-Type": "application/json" },
+    );
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(ensureCalls, 1);
+    assert.equal(upstreamHits, 1);
+    assert.deepEqual(JSON.parse(response.body), {
+      input: "hello from ensure",
+      model: cfg.model,
+      speed: cfg.speed,
+      lang_code: cfg.langCode,
+      temperature: cfg.temperature,
+      top_p: cfg.topP,
+      top_k: cfg.topK,
+      repetition_penalty: cfg.repetitionPenalty,
+      response_format: "mp3",
+    });
+  } finally {
+    await proxy.stop();
+    await closeServer(upstream.server);
+  }
+});
+
+test("TtsProxy returns 503 when ensureUpstreamReady fails", async () => {
+  let upstreamHits = 0;
+  const upstream = await createUpstream((_req, res) => {
+    upstreamHits += 1;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
+  });
+
+  const proxyPort = await getFreePort();
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig({ port: upstream.port, proxyPort });
+  const proxy = new TtsProxy(cfg, logger, async () => {
+    throw new Error("ensure failed");
+  });
+
+  try {
+    await proxy.start();
+    const response = await request(
+      proxyPort,
+      "POST",
+      "/v1/audio/speech",
+      JSON.stringify({ input: "hello" }),
+      { "Content-Type": "application/json" },
+    );
+
+    assert.equal(response.statusCode, 503);
+    assert.equal(upstreamHits, 0);
+    assert.equal((JSON.parse(response.body) as { error?: string }).error, "mlx-audio server unavailable");
+  } finally {
+    await proxy.stop();
+    await closeServer(upstream.server);
+  }
+});
+
 test("TtsProxy passes through non-TTS routes", async () => {
   let upstreamHits = 0;
   const upstream = await createUpstream((req, res) => {

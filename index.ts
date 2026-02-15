@@ -119,6 +119,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isPathWithin(baseDir: string, candidatePath: string): boolean {
+  const relative = path.relative(baseDir, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 function pingServer(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get({ hostname: "127.0.0.1", port, path: "/v1/models", timeout: 5000 }, (res) => {
@@ -150,10 +155,16 @@ export default function register(api: PluginApi) {
 
   // Data dir for venv and models — ~/.openclaw/mlx-audio/
   const dataDir = path.join(os.homedir(), ".openclaw", "mlx-audio");
+  const outputDir = path.join(dataDir, "outputs");
+  const tmpDir = "/tmp";
+  const systemTmpDir = path.resolve(os.tmpdir());
   const venvMgr = new VenvManager(dataDir, logger);
 
   const procMgr = new ProcessManager(cfg, logger);
-  const proxy = new TtsProxy(cfg, logger);
+  procMgr.on("max-restarts", () => {
+    logger.error("[mlx-audio] Restart budget exhausted, server will remain stopped until manual intervention");
+  });
+  let serviceRunning = false;
   const health = new HealthChecker(cfg.port, cfg.healthCheckIntervalMs, logger, () => {
     if (cfg.restartOnCrash && procMgr.isRunning()) {
       logger.warn("[mlx-audio] Server unhealthy, restarting...");
@@ -165,6 +176,10 @@ export default function register(api: PluginApi) {
   let ensureServerPromise: Promise<void> | null = null;
 
   async function ensureServerReady(): Promise<void> {
+    if (!serviceRunning) {
+      throw new Error("Plugin service is not running");
+    }
+
     if (procMgr.isRunning()) {
       health.start();
       return;
@@ -178,13 +193,18 @@ export default function register(api: PluginApi) {
     ensureServerPromise = (async () => {
       // Lazy setup Python venv + dependencies on first actual server start.
       const pythonBin = await venvMgr.ensure();
+      if (!serviceRunning) {
+        throw new Error("Plugin service stopped during startup");
+      }
       procMgr.setPythonBin(pythonBin);
       await procMgr.start();
       const healthy = await waitForServerHealthy(cfg.port);
       if (!healthy) {
         logger.warn("[mlx-audio] Server not healthy after startup, continuing anyway...");
       }
-      health.start();
+      if (serviceRunning) {
+        health.start();
+      }
     })();
 
     try {
@@ -192,6 +212,33 @@ export default function register(api: PluginApi) {
     } finally {
       ensureServerPromise = null;
     }
+  }
+
+  const proxy = new TtsProxy(cfg, logger, ensureServerReady);
+
+  function resolveOutputPath(outputPath?: string): string {
+    if (!outputPath) {
+      return path.join(tmpDir, `mlx-audio-${Date.now()}.mp3`);
+    }
+
+    const trimmed = outputPath.trim();
+    if (!trimmed) {
+      throw new Error("outputPath must be a non-empty string");
+    }
+
+    const expanded = trimmed === "~"
+      ? os.homedir()
+      : trimmed.startsWith("~/")
+        ? path.join(os.homedir(), trimmed.slice(2))
+        : trimmed;
+    const resolvedPath = path.isAbsolute(expanded)
+      ? path.resolve(expanded)
+      : path.resolve(outputDir, expanded);
+
+    if (!isPathWithin(tmpDir, resolvedPath) && !isPathWithin(systemTmpDir, resolvedPath) && !isPathWithin(outputDir, resolvedPath)) {
+      throw new Error(`outputPath must be under ${tmpDir} or ${outputDir}`);
+    }
+    return resolvedPath;
   }
 
   async function generateAudioViaProxy(text: string, outputPath?: string): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }> {
@@ -228,8 +275,8 @@ export default function register(api: PluginApi) {
               return;
             }
 
-            const outFile = outputPath || `/tmp/mlx-audio-${Date.now()}.mp3`;
             try {
+              const outFile = resolveOutputPath(outputPath);
               const outDir = path.dirname(outFile);
               if (!fs.existsSync(outDir)) {
                 fs.mkdirSync(outDir, { recursive: true });
@@ -256,15 +303,25 @@ export default function register(api: PluginApi) {
   api.registerService({
     id: "mlx-audio",
     start: async () => {
-      if (cfg.autoStart) {
-        await ensureServerReady();
-      } else {
-        logger.info("[mlx-audio] autoStart=false, server will start on first generate/test request");
+      try {
+        serviceRunning = true;
+        await proxy.start();
+        if (cfg.autoStart) {
+          void ensureServerReady().catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.error(`[mlx-audio] Background warmup failed: ${msg}`);
+          });
+        } else {
+          logger.info("[mlx-audio] autoStart=false, server will start on first generate/test request");
+        }
+        logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
+      } catch (err) {
+        serviceRunning = false;
+        throw err;
       }
-      await proxy.start();
-      logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
     },
     stop: async () => {
+      serviceRunning = false;
       health.stop();
       await proxy.stop();
       await procMgr.stop();
@@ -287,7 +344,7 @@ export default function register(api: PluginApi) {
           description: "Action to perform",
         },
         text: { type: "string", description: "Text to synthesize (for generate)" },
-        outputPath: { type: "string", description: "Save audio to file path (for generate)" },
+        outputPath: { type: "string", description: "Save audio to path under /tmp or ~/.openclaw/mlx-audio/outputs (for generate)" },
       },
       required: ["action"],
     },

@@ -39,6 +39,7 @@ export class ProcessManager extends EventEmitter {
   private pythonBin: string = "python3";
   private stderrBuffer: string[] = [];
   private restartBudgetExhausted = false;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private cfg: MlxAudioConfig,
@@ -60,13 +61,8 @@ export class ProcessManager extends EventEmitter {
     this.logger.info("[mlx-audio] Crash counter reset");
   }
 
-  /** Update config and reset crash counter (for hot-reload). */
-  updateConfig(cfg: MlxAudioConfig): void {
-    this.cfg = cfg;
-    this.resetCrashCounter();
-  }
-
   async start(): Promise<void> {
+    this.clearRestartTimer();
     if (this.proc) {
       this.logger.warn("[mlx-audio] Server already running");
       return;
@@ -84,32 +80,34 @@ export class ProcessManager extends EventEmitter {
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.clearRestartTimer();
     if (!this.proc) return;
+    const proc = this.proc;
     this.logger.info("[mlx-audio] Stopping server...");
-    this.proc.kill("SIGTERM");
+    proc.kill("SIGTERM");
     // Give it 5s, then SIGKILL
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        if (this.proc) this.proc.kill("SIGKILL");
+        if (this.proc === proc) {
+          proc.kill("SIGKILL");
+        }
         resolve();
       }, 5000);
-      if (this.proc) {
-        this.proc.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      } else {
+      proc.once("exit", () => {
         clearTimeout(timer);
         resolve();
-      }
+      });
     });
-    this.proc = null;
-    this.startedAt = null;
+    if (this.proc === proc) {
+      this.proc = null;
+      this.startedAt = null;
+    }
   }
 
   async restart(options?: { resetCrashCounter?: boolean; reason?: string }): Promise<void> {
     const resetCounter = options?.resetCrashCounter ?? true;
     const reason = options?.reason ?? "manual restart";
+    this.clearRestartTimer();
 
     if (!resetCounter) {
       if (!this.consumeRestartBudget(reason)) {
@@ -267,14 +265,20 @@ export class ProcessManager extends EventEmitter {
   }
 
   private spawn(): boolean {
+    if (this.proc) {
+      this.logger.warn("[mlx-audio] spawn() skipped: server already running");
+      return false;
+    }
+    this.clearRestartTimer();
     // Use a writable directory for cwd and logs (mlx_audio.server creates a logs/ dir)
     const dataDir = resolve(process.env.HOME ?? "/tmp", ".openclaw", "mlx-audio");
     const logDir = resolve(dataDir, "logs");
     const args = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
     this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 
+    let proc: ChildProcess;
     try {
-      this.proc = spawn(this.pythonBin, args, {
+      proc = spawn(this.pythonBin, args, {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },
         cwd: dataDir,
@@ -285,17 +289,18 @@ export class ProcessManager extends EventEmitter {
       this.logger.error(`[mlx-audio] Failed to spawn: ${msg}`);
       return false;
     }
+    this.proc = proc;
 
     this.startedAt = Date.now();
     this.lastError = null;
     this.stderrBuffer = [];
 
-    this.proc.stdout?.on("data", (chunk: Buffer) => {
+    proc.stdout?.on("data", (chunk: Buffer) => {
       const line = chunk.toString().trim();
       if (line) this.logger.info(`[mlx-audio/server] ${line}`);
     });
 
-    this.proc.stderr?.on("data", (chunk: Buffer) => {
+    proc.stderr?.on("data", (chunk: Buffer) => {
       const line = chunk.toString().trim();
       if (line) {
         this.logger.warn(`[mlx-audio/server] ${line}`);
@@ -305,12 +310,17 @@ export class ProcessManager extends EventEmitter {
       }
     });
 
-    this.proc.on("error", (err) => {
+    proc.on("error", (err) => {
+      if (this.proc !== proc) return;
       this.lastError = err.message;
       this.logger.error(`[mlx-audio] Process error: ${err.message}`);
     });
 
-    this.proc.on("exit", (code, signal) => {
+    proc.on("exit", (code, signal) => {
+      if (this.proc !== proc) {
+        this.logger.warn(`[mlx-audio] Ignoring exit from stale process pid=${proc.pid ?? "unknown"}`);
+        return;
+      }
       const uptime = this.startedAt ? Date.now() - this.startedAt : 0;
       this.logger.warn(`[mlx-audio] Server exited (code=${code}, signal=${signal}, uptime=${Math.round(uptime / 1000)}s)`);
 
@@ -349,7 +359,7 @@ export class ProcessManager extends EventEmitter {
 
       if (this.cfg.restartOnCrash) {
         if (this.consumeRestartBudget("after crash")) {
-          setTimeout(() => this.spawn(), RESTART_DELAY_MS);
+          this.scheduleRestart();
         }
       } else if (!this.stopping) {
         this.lastError = "Server exited and restartOnCrash is disabled.";
@@ -357,6 +367,27 @@ export class ProcessManager extends EventEmitter {
       }
     });
     return true;
+  }
+
+  private scheduleRestart(): void {
+    this.clearRestartTimer();
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      if (this.stopping || this.proc) {
+        return;
+      }
+      this.start().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.lastError = msg;
+        this.logger.error(`[mlx-audio] Delayed restart failed: ${msg}`);
+      });
+    }, RESTART_DELAY_MS);
+  }
+
+  private clearRestartTimer(): void {
+    if (!this.restartTimer) return;
+    clearTimeout(this.restartTimer);
+    this.restartTimer = null;
   }
 
   private consumeRestartBudget(reason: string): boolean {

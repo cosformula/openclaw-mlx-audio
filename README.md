@@ -156,9 +156,9 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 ### 4. Restart OpenClaw
 
 On startup, the plugin will:
-- Create a Python virtual environment at `~/.openclaw/mlx-audio/venv/` and install dependencies
-- Start the mlx-audio server on port 19280
 - Start a proxy on port 19281
+- If `autoStart: true`, warm up the mlx-audio server in the background
+- If `autoStart: false`, start the server on first `/v1/audio/speech`, tool `generate`, or `/mlx-tts test`
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
 
@@ -181,7 +181,7 @@ All fields are optional:
 | `topP` | `0.95` | Nucleus sampling threshold, must be > 0 and <= 1 |
 | `topK` | `40` | Top-k sampling cutoff, integer >= 1 |
 | `repetitionPenalty` | `1.0` | Repetition penalty, must be > 0 |
-| `autoStart` | `true` | Start with OpenClaw |
+| `autoStart` | `true` | Warm up server in background on OpenClaw startup |
 | `healthCheckIntervalMs` | `30000` | Health check interval in ms |
 | `restartOnCrash` | `true` | Auto-restart on crash |
 | `maxRestarts` | `3` | Max consecutive restart attempts |
@@ -196,7 +196,7 @@ OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silico
 
 OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional parameters required by mlx-audio (full model ID, language code, etc.) are not part of the OpenAI API specification.
 
-The proxy intercepts requests, injects configured parameters, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
+The proxy intercepts requests, injects configured parameters, ensures the upstream server is ready for `/v1/audio/speech`, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
 
 The plugin also manages the server lifecycle:
 - Creates and maintains a Python virtual environment
@@ -204,6 +204,7 @@ The plugin also manages the server lifecycle:
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
 - Checks available memory before starting; detects OOM kills
+- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`
 
 ## Troubleshooting
 

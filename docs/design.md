@@ -28,7 +28,7 @@ OpenClaw (provider: openai)
   -> mp3 stream response
 ```
 
-Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`）。
+Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 路径前确保上游服务可用。
 
 ## 组件职责
 
@@ -37,7 +37,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 | `index.ts` | TypeScript | 插件入口，读取配置，注册 service/tool/command |
 | `src/venv-manager.ts` | TypeScript | 初始化并维护 `~/.openclaw/mlx-audio/venv/` |
 | `src/process-manager.ts` | TypeScript | 启停 `mlx_audio.server` 子进程，崩溃重启与日志收集 |
-| `src/proxy.ts` | TypeScript | 处理 `/v1/audio/speech` 参数注入并转发 |
+| `src/proxy.ts` | TypeScript | 处理 `/v1/audio/speech` 参数注入、上游就绪检查与转发 |
 | `src/health.ts` | TypeScript | 定时健康检查 `/v1/models`，连续失败触发重启 |
 | `src/config.ts` | TypeScript | 配置默认值、校验与参数映射 |
 
@@ -45,15 +45,16 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 
 ### 1. Service
 
-- 启动时自动创建 Python venv（首次）
-- 启动/停止 `mlx_audio.server`
-- 启动/停止本地 proxy
+- 启动时先启动本地 proxy
+- `autoStart=true` 时后台预热 Python venv 与 `mlx_audio.server`（首次）
+- `autoStart=false` 时在首个生成请求按需拉起 `mlx_audio.server`
+- 停止时关闭 proxy 与 `mlx_audio.server`
 - 可选健康检查与自动重启
 
 ### 2. Tool
 
 `mlx_audio_tts` 支持两个 action：
-- `generate`：文本生成音频并返回文件路径
+- `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`）
 - `status`：返回服务状态与关键配置
 
 ### 3. Command
