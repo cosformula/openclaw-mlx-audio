@@ -30,10 +30,9 @@ const REQUIRED_PACKAGES = [
 ];
 
 /** Packages that must be installed with --only-binary to avoid C compilation failures. */
-const BINARY_ONLY_PACKAGES = ["spacy"];
-
-/** Post-install: download spacy English model. */
-const SPACY_MODEL = "en_core_web_sm";
+const BINARY_ONLY_PACKAGES = ["spacy>=3.8,<3.9"];
+const SPACY_MODEL_PACKAGE =
+  "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl";
 const PYTHON_VERSION = "3.12";
 const UV_RELEASE_BASE_URL = "https://github.com/astral-sh/uv/releases/latest/download";
 const UV_DOWNLOAD_TIMEOUT_MS = 60_000;
@@ -97,24 +96,29 @@ export class VenvManager {
     // Create venv (always recreated when not ready)
     this.logger.info("[mlx-audio/venv] Creating virtual environment...");
     rmSync(this.venvDir, { recursive: true, force: true });
-    await this.run(uvBin, ["venv", "--python", pythonSpec, this.venvDir]);
+    await this.run(uvBin, ["venv", "--seed", "--python", pythonSpec, this.venvDir]);
 
     // Install main packages
     this.logger.info("[mlx-audio/venv] Installing mlx-audio...");
     await this.run(uvBin, ["pip", "install", "--python", pythonBin, ...REQUIRED_PACKAGES]);
 
-    // Install binary-only packages (avoid C compilation)
-    this.logger.info("[mlx-audio/venv] Installing spacy (pre-built)...");
-    await this.run(uvBin, ["pip", "install", "--python", pythonBin, "--only-binary", ":all:", ...BINARY_ONLY_PACKAGES]);
-
-    // Download spacy English model
-    this.logger.info("[mlx-audio/venv] Downloading spacy English model...");
-    await this.run(pythonBin, ["-m", "spacy", "download", SPACY_MODEL]);
+    // Install binary-only packages and model wheel (avoid C compilation and spacy downloader pip path).
+    this.logger.info("[mlx-audio/venv] Installing spacy and en_core_web_sm model (pre-built)...");
+    await this.run(uvBin, [
+      "pip",
+      "install",
+      "--python",
+      pythonBin,
+      "--only-binary",
+      ":all:",
+      ...BINARY_ONLY_PACKAGES,
+      SPACY_MODEL_PACKAGE,
+    ]);
 
     // Write manifest
     const manifest: Manifest = {
       version: MANIFEST_VERSION,
-      packages: [...REQUIRED_PACKAGES, ...BINARY_ONLY_PACKAGES],
+      packages: [...REQUIRED_PACKAGES, ...BINARY_ONLY_PACKAGES, SPACY_MODEL_PACKAGE],
       pythonVersion: await this.getPythonVersion(pythonBin),
       createdAt: new Date().toISOString(),
     };

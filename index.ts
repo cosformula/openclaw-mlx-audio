@@ -56,6 +56,8 @@ const MAX_AUDIO_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_ERROR_DETAIL_BYTES = 8 * 1024;
 const DEFAULT_PLUGIN_ID = "openclaw-mlx-audio";
 const MAX_CAPTURED_PROCESS_OUTPUT_CHARS = 16_384;
+const SPACY_MODEL_WHEEL_URL =
+  "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl";
 const EXTERNAL_PYTHON_REQUIRED_MODULES = [
   "mlx_audio",
   "uvicorn",
@@ -66,6 +68,7 @@ const EXTERNAL_PYTHON_REQUIRED_MODULES = [
   "num2words",
   "phonemizer",
   "spacy",
+  "en_core_web_sm",
 ];
 
 type Logger = PluginApi["logger"];
@@ -327,11 +330,10 @@ async function validateExternalPython(pythonExecutable: string, logger: Logger):
   if (missingModules.length > 0) {
     const installCmd =
       `${pythonExecutable} -m pip install mlx-audio uvicorn fastapi python-multipart ` +
-      "'setuptools<81' webrtcvad misaki num2words phonemizer spacy";
+      `'setuptools<81' webrtcvad misaki num2words phonemizer "spacy>=3.8,<3.9" "${SPACY_MODEL_WHEEL_URL}"`;
     throw new Error(
       `[mlx-audio] External python is missing required modules: ${missingModules.join(", ")}. ` +
-      `Install dependencies in that environment, for example:\n${installCmd}\n` +
-      `${pythonExecutable} -m spacy download en_core_web_sm`,
+      `Install dependencies in that environment, for example:\n${installCmd}`,
     );
   }
 
