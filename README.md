@@ -225,6 +225,12 @@ kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
 
 The model is being downloaded. Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB.
 
+## Acknowledgements
+
+- [mlx-audio](https://github.com/Blaizzy/mlx-audio) by Prince Canuma
+- [MLX](https://github.com/ml-explore/mlx) by Apple
+- [OpenClaw](https://github.com/openclaw/openclaw)
+
 ## License
 
 MIT

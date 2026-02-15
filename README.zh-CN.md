@@ -225,6 +225,12 @@ kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
 
 模型正在下载。Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB。
 
+## 致谢
+
+- [mlx-audio](https://github.com/Blaizzy/mlx-audio) by Prince Canuma
+- [MLX](https://github.com/ml-explore/mlx) by Apple
+- [OpenClaw](https://github.com/openclaw/openclaw)
+
 ## License
 
 MIT
