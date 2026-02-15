@@ -5,15 +5,7 @@ description: "Local TTS on Apple Silicon via mlx-audio. Use when the user asks t
 
 # MLX Audio — Local TTS
 
-Generate speech audio locally on Apple Silicon Macs using mlx-audio models. Zero API key, zero cloud dependency.
-
-## Quick Reference
-
-| Task | How |
-|------|-----|
-| Check status | `/mlx-tts status` |
-| Generate audio | Use `mlx_audio_tts` tool with `action: "generate"` |
-| Test voice | `/mlx-tts test Hello world` |
+Generate speech locally on Apple Silicon using mlx-audio. No API key, no cloud dependency.
 
 ## Tool: mlx_audio_tts
 
@@ -27,7 +19,7 @@ Generate speech audio locally on Apple Silicon Macs using mlx-audio models. Zero
 }
 ```
 
-Returns path to generated MP3 file.
+Returns path to generated audio file.
 
 ### Check Status
 
@@ -39,19 +31,25 @@ Returns path to generated MP3 file.
 
 Returns server status, loaded model, uptime, and config.
 
-## Supported Models
+## Commands
 
-| Model | Best For | Size |
-|-------|----------|------|
-| Kokoro-82M | Fast English TTS | 82M |
-| Qwen3-TTS-0.6B-Base | Chinese/multilingual voice clone | ~1.2G |
-| Qwen3-TTS-1.7B-Base | Best quality voice clone | ~3.4G |
-| Qwen3-TTS-VoiceDesign | Custom voice design | ~1.2-3.4G |
+| Command | Description |
+|---|---|
+| `/mlx-tts status` | Server status and loaded model |
+| `/mlx-tts test <text>` | Generate and send a test audio |
+
+## Models
+
+| Model | Languages | Description |
+|---|---|---|
+| Kokoro-82M (default) | EN, JA, ZH, FR, ES, IT, PT, HI | Lightweight, multilingual, 54 preset voices |
+| Qwen3-TTS-0.6B-Base | ZH, EN, JA, KO, and more | Higher Chinese quality. Supports 3-second reference audio voice cloning |
+| Qwen3-TTS-1.7B-VoiceDesign | ZH, EN, JA, KO, and more | Generates voices from natural language descriptions. Requires 16 GB+ |
+| Chatterbox | 16 languages | Widest language coverage. Requires 16 GB+ |
 
 ## Notes
 
-- Audio is generated locally — no data leaves the machine
-- First generation after startup may be slower (model warmup)
-- Large models (1.7B) may take 30+ seconds for 10s of audio
-- Kokoro is recommended for low-latency scenarios
-- Server runs as a background subprocess, auto-restarts on crash
+- Audio is generated locally. No data leaves the machine.
+- First generation after startup may be slower (model warmup).
+- The server runs as a background subprocess and auto-restarts on crash.
+- Config is set in `openclaw.json` under `plugins.entries.openclaw-mlx-audio.config`. Model, language, and voice changes require a gateway restart.
