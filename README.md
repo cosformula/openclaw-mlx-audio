@@ -2,40 +2,82 @@
 
 [中文文档](./README.zh-CN.md)
 
-**The missing local TTS for OpenClaw on Apple Silicon.**
+Local TTS plugin for OpenClaw, running on Apple Silicon. No cloud dependency.
 
-OpenClaw supports ElevenLabs, OpenAI, and Edge TTS out of the box — all cloud-based. Existing self-hosted alternatives ([openedai-speech](https://github.com/matatonic/openedai-speech), [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server)) require NVIDIA GPUs. If you're on a Mac, you're stuck paying per request or sending voice data to someone else's server.
+## About MLX
 
-This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally on Apple Silicon. It manages everything — Python venv, model downloads, server lifecycle, crash recovery — so you don't have to.
+[MLX](https://github.com/ml-explore/mlx) is Apple's machine learning framework, optimized for the unified memory architecture of M-series chips. [mlx-audio](https://github.com/Blaizzy/mlx-audio) is an audio processing library built on MLX, supporting text-to-speech (TTS), speech-to-text (STT), and more.
 
-- **Zero cloud dependency** after first model download
-- **Zero cost** per request
-- **Zero config** for the Python side — the plugin handles it
-- **Comparable latency** to cloud TTS on M-series chips
+This plugin **only works on Apple Silicon Macs** (M1 and later). Intel Macs, Windows, and Linux are not supported.
+
+**Alternatives for non-Mac users**:
+- [openedai-speech](https://github.com/matatonic/openedai-speech): self-hosted, requires NVIDIA GPU
+- [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server): same
+- OpenClaw's built-in Edge TTS: free cloud-based option, no GPU required
 
 ## Requirements
 
-- **macOS with Apple Silicon** (M1/M2/M3/M4)
-- **Python 3.11+** (plugin manages its own venv)
-- **OpenClaw** running locally
+- macOS + Apple Silicon (M1/M2/M3/M4)
+- Python 3.11+ (the plugin manages its own venv)
+- OpenClaw running locally
 
-### Memory
+## Available Models
 
-| Model | Disk | RAM (1 worker) | Languages |
-|---|---|---|---|
-| `Kokoro-82M-bf16` | 345 MB | ~400 MB | English, Japanese |
-| `Qwen3-TTS-0.6B-Base-bf16` | 2.3 GB | ~1.4 GB | Chinese, English, Japanese |
-| `Qwen3-TTS-1.7B-VoiceDesign-bf16` | 4.2 GB | ~3.8 GB | Chinese, English + voice clone |
+TTS models supported by mlx-audio, sorted by memory usage:
 
-> **8 GB Mac**: use Kokoro-82M (English) or 0.6B-Base with `workers: 1`. The 1.7B model will likely be killed by the OS.
+| Model | Disk | RAM (1 worker) | Languages | Notes |
+|---|---|---|---|---|
+| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN/JA/ZH/FR/ES/IT/PT/HI | Fast, great English quality. Best for 8GB Macs |
+| [Soprano-80M](https://huggingface.co/mlx-community/Soprano-1.1-80M-bf16) | ~300 MB | ~400 MB | EN | Lightweight English TTS |
+| [Spark-TTS-0.5B](https://huggingface.co/mlx-community/Spark-TTS-0.5B-bf16) | ~1 GB | ~1 GB | ZH/EN | Mid-size, bilingual |
+| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH/EN/JA/KO+ | **Default model**. Best Chinese quality |
+| [OuteTTS-0.6B](https://huggingface.co/mlx-community/OuteTTS-1.0-0.6B-fp16) | ~1.2 GB | ~1.4 GB | EN | Efficient English TTS |
+| [CSM-1B](https://huggingface.co/mlx-community/csm-1b) | ~2 GB | ~2 GB | EN | Conversational style, voice cloning |
+| [Dia-1.6B](https://huggingface.co/mlx-community/Dia-1.6B-fp16) | ~3.2 GB | ~3.2 GB | EN | Optimized for dialogue |
+| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH/EN/JA/KO+ | Voice cloning + emotion control. Requires 16GB+ |
+| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 languages | Widest language coverage. Requires 16GB+ |
+
+### How to Choose
+
+- **8 GB Mac**: Kokoro-82M (English) or Qwen3-TTS-0.6B-Base (Chinese), with `workers: 1`. The 1.7B model will be OOM-killed by the OS.
+- **16 GB Mac**: All models above will work. Use 1.7B-VoiceDesign for voice cloning.
+- **Chinese**: Qwen3-TTS series has the best quality. Kokoro supports Chinese but results are mediocre.
+- **English**: Kokoro-82M offers the best speed/quality tradeoff.
+- **Multilingual**: Chatterbox covers 16 languages but needs more memory.
+
+### Language Codes
+
+For Kokoro and Qwen3-TTS:
+
+| Code | Language |
+|---|---|
+| `a` | American English |
+| `b` | British English |
+| `z` | Chinese |
+| `j` | Japanese |
+| `e` | Spanish |
+| `f` | French |
+
+### Voices
+
+Kokoro includes 50+ preset voices:
+- American female: `af_heart`, `af_bella`, `af_nova`, `af_sky`
+- American male: `am_adam`, `am_echo`
+- Chinese female: `zf_xiaobei`
+- Chinese male: `zm_yunxi`
+- Japanese: `jf_alpha`, `jm_kumo`
+
+Qwen3-TTS uses named voices (e.g. `Chelsie`) and supports voice cloning via reference audio.
+
+If not specified, models use their default voice.
 
 ## Quick Start
 
-1. **Install the plugin**:
+1. Install the plugin:
    ```bash
    openclaw plugin install @cosformula/openclaw-mlx-audio
    ```
-   Or load from local path in `openclaw.json`:
+   Or load from a local path in `openclaw.json`:
    ```json
    {
      "plugins": {
@@ -44,7 +86,7 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
    }
    ```
 
-2. **Configure the plugin** (in `openclaw.json`):
+2. Configure the plugin (`openclaw.json`):
    ```json
    {
      "plugins": {
@@ -62,7 +104,7 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
    }
    ```
 
-3. **Point OpenClaw's TTS to the local endpoint**:
+3. Point OpenClaw's TTS to the local endpoint:
    ```json
    {
      "env": {
@@ -79,11 +121,9 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
    }
    ```
 
-4. **Restart OpenClaw**. The plugin will:
-   - Create a Python venv at `~/.openclaw/mlx-audio/venv/`
-   - Install `mlx-audio` and dependencies
-   - Start the TTS server on port 19280
-   - Start a proxy on port 19281 that injects model/language config
+4. Restart OpenClaw. The plugin will create a Python environment, install dependencies, and start the TTS service.
+
+   On first launch, the model will be downloaded (0.6B-Base is ~2.3 GB). There is currently no progress UI; check OpenClaw logs or `ls -la ~/.cache/huggingface/` to monitor. No network needed after download.
 
 ## Configuration
 
@@ -93,13 +133,18 @@ All fields are optional. Set in `plugins.entries.openclaw-mlx-audio.config`:
 |---|---|---|
 | `model` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16` | HuggingFace model ID |
 | `port` | `19280` | mlx-audio server port |
-| `proxyPort` | `19281` | Proxy port (this is what OpenClaw connects to) |
+| `proxyPort` | `19281` | Proxy port (OpenClaw connects to this) |
 | `workers` | `1` | Uvicorn workers (use 1 on low-memory machines) |
 | `speed` | `1.0` | Speech speed multiplier |
-| `langCode` | `z` | Language: `a` (English), `z` (Chinese), `j` (Japanese) |
-| `voice` | *(model default)* | Voice name (e.g. `af_heart` for Kokoro) |
-| `refAudio` | — | Path to reference audio for voice cloning (1.7B VoiceDesign only) |
-| `refText` | — | Transcript of reference audio |
+| `langCode` | `z` | Language code, see table above |
+| `voice` | model default | Voice name, e.g. `af_heart` for Kokoro |
+| `refAudio` | | Path to reference audio for voice cloning (1.7B VoiceDesign only) |
+| `refText` | | Transcript of the reference audio |
+| `temperature` | `0.7` | Generation temperature, higher = more variation |
+| `autoStart` | `true` | Start TTS service when OpenClaw starts |
+| `healthCheckIntervalMs` | `30000` | Health check interval in ms |
+| `restartOnCrash` | `true` | Auto-restart on crash |
+| `maxRestarts` | `3` | Max consecutive restart attempts |
 
 ## How It Works
 
@@ -109,31 +154,34 @@ OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silico
                     lang_code, speed
 ```
 
-OpenClaw's built-in TTS client speaks the OpenAI `/v1/audio/speech` API. But mlx-audio models need extra parameters (full HuggingFace model ID, `lang_code`, etc.) that OpenAI's API doesn't have.
+OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API, but mlx-audio models require additional parameters (full model ID, language code, etc.) not part of the OpenAI spec.
 
-The proxy sits in between: it intercepts requests, injects the configured parameters, and forwards to the real mlx-audio server. This means OpenClaw doesn't need any code changes — it just talks to what looks like an OpenAI TTS endpoint.
+The proxy intercepts requests, injects configured parameters, and forwards them to the mlx-audio server. OpenClaw requires no code changes — it sees a standard OpenAI TTS endpoint.
 
 The plugin also manages the full server lifecycle:
 - Creates and maintains a Python venv (`~/.openclaw/mlx-audio/venv/`)
 - Starts the mlx-audio server as a child process
-- Auto-restarts on crash (with smart backoff — counter resets after 30s healthy uptime)
-- Cleans up zombie processes on port conflicts
-- Warns on low memory before starting, detects OOM kills
+- Auto-restarts on crash (counter resets after 30s of healthy uptime)
+- Cleans up stale processes on port conflicts before starting
+- Checks available memory before starting, detects OOM kills
 
 ## Troubleshooting
 
-**Server keeps crashing (3 times then stops)**
-- Check OpenClaw logs for `[mlx-audio] Last errors:` — it captures stderr from the Python process
-- Common causes: missing Python dependency, wrong model name, port conflict
-- Fix the issue, then change any config field — the crash counter resets on config change
+**Server crashes 3 times then stops restarting**
 
-**SIGKILL (likely OOM)**
-- Logs will say: `⚠️ Server was killed by SIGKILL (likely out-of-memory)`
-- Switch to a smaller model or reduce `workers` to 1
+Check OpenClaw logs for `[mlx-audio] Last errors:`, which contains stderr from the Python process. Common causes: missing Python dependency, wrong model name, port conflict. After fixing, change any config field to reset the crash counter.
+
+**SIGKILL (out of memory)**
+
+Logs will show `⚠️ Server was killed by SIGKILL (likely out-of-memory)`. Switch to a smaller model or set `workers` to 1.
 
 **Port already in use**
-- The plugin auto-kills stale processes on the configured port before starting
-- If it persists: `kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)`
+
+The plugin auto-kills stale processes on the configured port before starting. If it persists: `kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)`
+
+**First startup is slow**
+
+The model is being downloaded. 0.6B-Base is ~2.3 GB, 1.7B is ~4.2 GB. There is no download progress UI yet; check logs or the HuggingFace cache directory.
 
 ## License
 
