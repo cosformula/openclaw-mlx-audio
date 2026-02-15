@@ -8,6 +8,7 @@
   "scripts": {
     "check-schema": "node scripts/check-schema-sync.mjs",
     "build": "tsc && npm run check-schema",
+    "test": "npm run build && node --test dist/test",
     "prepublishOnly": "npm run build"
   },
   "files": [
