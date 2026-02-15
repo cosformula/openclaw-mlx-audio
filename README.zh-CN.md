@@ -16,7 +16,7 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 ## 系统要求
 
 - macOS，Apple Silicon（M1 及以后）
-- Python 3.11+（插件管理独立 venv，不影响系统环境）
+- Python 3.11-3.13（插件管理独立 venv，不影响系统环境）
 - OpenClaw
 
 ## 模型
@@ -178,6 +178,9 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 | `refText` | | 参考音频对应文字 |
 | `instruct` | | 音色描述文本（仅 VoiceDesign 模型） |
 | `temperature` | `0.7` | 生成温度 |
+| `topP` | `0.95` | Nucleus 采样阈值，需 > 0 且 <= 1 |
+| `topK` | `40` | Top-k 采样截断，整数 >= 1 |
+| `repetitionPenalty` | `1.0` | 重复惩罚系数，需 > 0 |
 | `autoStart` | `true` | 随 OpenClaw 自动启动 |
 | `healthCheckIntervalMs` | `30000` | 健康检查间隔（毫秒） |
 | `restartOnCrash` | `true` | 崩溃后自动重启 |

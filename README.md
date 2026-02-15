@@ -16,7 +16,7 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 ## Requirements
 
 - macOS, Apple Silicon (M1 and later)
-- Python 3.11+ (the plugin manages its own venv)
+- Python 3.11-3.13 (the plugin manages its own venv)
 - OpenClaw
 
 ## Models
@@ -178,6 +178,9 @@ All fields are optional:
 | `refText` | | Transcript of reference audio |
 | `instruct` | | Voice description text (VoiceDesign models only) |
 | `temperature` | `0.7` | Generation temperature |
+| `topP` | `0.95` | Nucleus sampling threshold, must be > 0 and <= 1 |
+| `topK` | `40` | Top-k sampling cutoff, integer >= 1 |
+| `repetitionPenalty` | `1.0` | Repetition penalty, must be > 0 |
 | `autoStart` | `true` | Start with OpenClaw |
 | `healthCheckIntervalMs` | `30000` | Health check interval in ms |
 | `restartOnCrash` | `true` | Auto-restart on crash |
