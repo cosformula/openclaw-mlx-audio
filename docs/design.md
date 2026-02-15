@@ -28,7 +28,7 @@ OpenClaw (provider: openai)
   -> mp3 stream response
 ```
 
-Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。若下游客户端在响应完成前断开，proxy 会立即取消上游请求。
+Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。若下游客户端在响应完成前断开，proxy 会立即取消上游请求。若启动阶段超时，proxy 返回的 503 详情会包含启动阶段和模型缓存近似下载进度。
 
 ## 组件职责
 
@@ -51,6 +51,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 - `autoStart=true` 时后台预热所选 Python 运行时与 `mlx_audio.server`
 - `autoStart=false` 时在首个生成请求或 `GET /v1/models` 请求按需拉起 `mlx_audio.server`
 - 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用并在下次请求重试
+- 启动链路跟踪阶段状态与模型缓存近似下载进度，状态可通过 tool/command 查询，并写入启动超时错误详情
 - 停止时关闭 proxy 与 `mlx_audio.server`
 - 可选健康检查与自动重启
 
@@ -58,12 +59,12 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 
 `mlx_audio_tts` 支持两个 action：
 - `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，使用异步文件系统校验并拒绝符号链接路径段，音频响应流式写盘并限制 64 MB）
-- `status`：返回服务状态与关键配置
+- `status`：返回服务状态、启动阶段与近似下载进度，以及关键配置
 
 ### 3. Command
 
 `/mlx-tts` 支持：
-- `status`
+- `status`（含启动阶段与近似下载进度）
 - `test <text>`
 
 ## 配置（实际字段）

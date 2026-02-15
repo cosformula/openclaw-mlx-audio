@@ -95,7 +95,7 @@ On startup, the plugin will:
 - If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, then create `~/.openclaw/mlx-audio/venv/` and install Python dependencies
 - If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
 
-On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
+On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). During startup, `/mlx-tts status` and tool action `status` report startup phase and approximate model cache progress (text bar + percentage). If startup times out, the 503 `detail` returned to OpenClaw includes the same status snapshot. No network connection is needed after the initial download.
 
 ## Models
 
@@ -207,6 +207,7 @@ The plugin also manages the server lifecycle:
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
 - Checks available memory before starting; detects OOM kills
+- Tracks startup phase and approximate model cache progress for `/mlx-tts status`, tool `status`, and startup timeout errors
 - Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`, verifies real paths with async filesystem checks, and rejects symbolic-link segments
 - Streams generated audio directly to disk and rejects payloads larger than 64 MB to prevent memory spikes
 
@@ -234,7 +235,7 @@ kill -TERM <mlx_audio_server_pid>
 
 **Startup health timeout**
 
-If logs show `Server did not pass health check within 10000ms`, startup did not become healthy in time. Common causes are first-run dependency/model warmup, wrong model name, or dependency mismatch in external mode. Retry after fixing the root cause.
+If logs show `Server did not pass health check within 10000ms`, startup did not become healthy in time. The error detail now includes startup phase and approximate model cache progress. Common causes are first-run dependency/model warmup, wrong model name, or dependency mismatch in external mode. Retry after fixing the root cause.
 
 **Slow first startup**
 

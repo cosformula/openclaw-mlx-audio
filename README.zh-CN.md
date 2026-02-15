@@ -95,7 +95,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 - 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后创建 `~/.openclaw/mlx-audio/venv/` 并安装 Python 依赖
 - 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
 
-首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
+首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。启动阶段可通过 `/mlx-tts status` 与 tool `status` 查看启动阶段和模型缓存近似下载进度（文本进度条 + 百分比）。若启动超时，返回给 OpenClaw 的 503 `detail` 也会包含相同状态信息。模型下载完成后不再需要网络连接。
 
 ## 模型
 
@@ -207,6 +207,7 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 - 崩溃自动重启（健康运行 30 秒后重置计数）
 - 启动前清理端口上的残留进程
 - 启动前检查可用内存，识别 OOM kill
+- 跟踪启动阶段和模型缓存近似下载进度，并在 `/mlx-tts status`、tool `status` 和启动超时错误中暴露
 - 限制 tool 输出路径仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，使用异步文件系统检查校验 realpath，并拒绝符号链接路径段
 - 生成音频采用流式写盘，并拒绝超过 64 MB 的响应，避免内存峰值增长
 
@@ -234,7 +235,7 @@ kill -TERM <mlx_audio_server_pid>
 
 **启动健康检查超时**
 
-若日志出现 `Server did not pass health check within 10000ms`，表示启动阶段未在预期时间内通过健康检查。常见原因包括首次依赖/模型预热较慢、模型名错误、或 external 模式依赖不完整。修复后再次触发请求即可重试启动。
+若日志出现 `Server did not pass health check within 10000ms`，表示启动阶段未在预期时间内通过健康检查。错误详情会附带启动阶段和模型缓存近似进度。常见原因包括首次依赖/模型预热较慢、模型名错误、或 external 模式依赖不完整。修复后再次触发请求即可重试启动。
 
 **首次启动耗时较长**
 

@@ -30,12 +30,13 @@ Returns path to generated audio file. `outputPath` is restricted to `/tmp` or `~
 ```
 
 Returns server status, loaded model, uptime, and config.
+Also includes startup phase and approximate model cache download progress when warming up.
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `/mlx-tts status` | Server status and loaded model |
+| `/mlx-tts status` | Server status, startup phase, and approximate model cache progress |
 | `/mlx-tts test <text>` | Generate and send a test audio |
 
 ## Models
@@ -52,6 +53,7 @@ Returns server status, loaded model, uptime, and config.
 - Audio is generated locally. No data leaves the machine.
 - Proxy starts first. The server warms up in the background when `autoStart` is enabled, otherwise it starts on first generation request or `GET /v1/models`.
 - Startup readiness requires `/v1/models` to pass health check within about 10 seconds. If not ready, the request returns unavailable and startup is retried on the next request.
+- Startup status tracks phase and approximate model cache progress (text bar + percentage). The same status appears in startup timeout error details returned to OpenClaw.
 - `pythonEnvMode: managed` (default) bootstraps `uv`, creates `~/.openclaw/mlx-audio/venv/`, and installs Python dependencies.
 - `pythonEnvMode: external` uses `pythonExecutable` directly after validating Python 3.11-3.13 and required modules.
 - First generation may be slower due to model warmup.

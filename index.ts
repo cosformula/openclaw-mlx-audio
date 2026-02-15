@@ -11,6 +11,11 @@ import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
 import { VenvManager } from "./src/venv-manager.js";
 import { resolveSecureOutputPath } from "./src/output-path.js";
+import {
+  StartupStatusTracker,
+  formatStartupStatusForDisplay,
+  formatStartupStatusForError,
+} from "./src/startup-status.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -352,6 +357,7 @@ export default function register(api: PluginApi) {
   const systemTmpDir = path.resolve(os.tmpdir());
   const homeDir = os.homedir();
   const venvMgr = new VenvManager(dataDir, logger);
+  const startupStatus = new StartupStatusTracker(cfg.model, homeDir, logger);
   let pythonRuntimePrepared = false;
 
   const procMgr = new ProcessManager(cfg, logger);
@@ -369,10 +375,16 @@ export default function register(api: PluginApi) {
   });
   let ensureServerPromise: Promise<void> | null = null;
 
+  function createStartupTimeoutError(): Error {
+    const detail = formatStartupStatusForError(startupStatus.getSnapshot());
+    return new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms. ${detail}`);
+  }
+
   async function ensurePythonRuntimeReady(): Promise<void> {
     if (pythonRuntimePrepared) return;
 
     if (cfg.pythonEnvMode === "external") {
+      startupStatus.markPreparingPython("Validating external Python environment...");
       const pythonExecutable = cfg.pythonExecutable as string;
       await validateExternalPython(pythonExecutable, logger);
       if (!serviceRunning) {
@@ -383,6 +395,7 @@ export default function register(api: PluginApi) {
       return;
     }
 
+    startupStatus.markPreparingPython("Preparing managed Python environment...");
     const pythonBin = await venvMgr.ensure();
     if (!serviceRunning) {
       throw new Error("Plugin service stopped during startup");
@@ -397,11 +410,20 @@ export default function register(api: PluginApi) {
     }
 
     if (procMgr.isRunning()) {
+      const snapshot = startupStatus.getSnapshot();
+      if (snapshot.inProgress) {
+        startupStatus.markWaitingHealth("Waiting for /v1/models health check...");
+      }
       const healthy = await waitForServerHealthy(cfg.port);
       if (!healthy) {
-        throw new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms`);
+        if (!snapshot.inProgress) {
+          startupStatus.begin("Checking running server health...");
+          startupStatus.markWaitingHealth("Waiting for /v1/models health check...");
+        }
+        throw createStartupTimeoutError();
       }
       health.start();
+      startupStatus.markReady("Server is ready");
       return;
     }
 
@@ -412,26 +434,36 @@ export default function register(api: PluginApi) {
 
     ensureServerPromise = (async () => {
       let started = false;
+      startupStatus.begin("Preparing server startup...");
       try {
         // Lazy setup Python runtime + dependencies on first actual server start.
         await ensurePythonRuntimeReady();
         if (!serviceRunning) {
           throw new Error("Plugin service stopped during startup");
         }
+        startupStatus.markStartingServer("Starting mlx-audio server process...");
         await procMgr.start();
         started = true;
         if (!serviceRunning) {
           throw new Error("Plugin service stopped during startup");
         }
+        startupStatus.markWaitingHealth("Waiting for /v1/models health check...");
         const healthy = await waitForServerHealthy(cfg.port);
         if (!healthy) {
-          throw new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms`);
+          throw createStartupTimeoutError();
         }
         if (!serviceRunning) {
           throw new Error("Plugin service stopped during startup");
         }
         health.start();
+        startupStatus.markReady("Server is ready");
       } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (serviceRunning) {
+          startupStatus.markError(message);
+        } else {
+          startupStatus.markIdle("service stopped during startup");
+        }
         if (started) {
           await procMgr.stop().catch((stopErr) => {
             const stopMsg = stopErr instanceof Error ? stopErr.message : String(stopErr);
@@ -579,6 +611,7 @@ export default function register(api: PluginApi) {
       health.stop();
       await proxy.stop();
       await procMgr.stop();
+      startupStatus.markIdle("service stopped");
       logger.info("[mlx-audio] Plugin stopped");
     },
   });
@@ -607,8 +640,10 @@ export default function register(api: PluginApi) {
 
       if (action === "status") {
         const status = procMgr.getStatus();
+        const startup = startupStatus.getSnapshot();
         const result = {
           server: status,
+          startup,
           config: {
             model: cfg.model,
             port: cfg.port,
@@ -645,11 +680,13 @@ export default function register(api: PluginApi) {
 
       if (!subCmd || subCmd === "status") {
         const status = procMgr.getStatus();
+        const startup = startupStatus.getSnapshot();
         const uptime = status.startedAt ? Math.round((Date.now() - status.startedAt) / 1000) : 0;
         return {
           text: [
             `MLX Audio TTS`,
             `Server: ${status.running ? "running" : "stopped"}${status.pid ? ` (PID ${status.pid})` : ""}`,
+            `Startup: ${formatStartupStatusForDisplay(startup)}`,
             `Model: ${cfg.model}`,
             `Ports: server=${cfg.port} proxy=${cfg.proxyPort}`,
             cfg.pythonEnvMode === "external"
