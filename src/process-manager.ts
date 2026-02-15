@@ -1,6 +1,6 @@
 /** Manages the mlx_audio.server Python subprocess. */
 
-import { spawn, execFileSync, execSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
@@ -29,6 +29,7 @@ const HEALTHY_UPTIME_MS = 30_000;
 
 /** Delay before restart attempt (ms). */
 const RESTART_DELAY_MS = 3_000;
+const MAX_CAPTURED_COMMAND_OUTPUT_CHARS = 16_384;
 
 export class ProcessManager extends EventEmitter {
   private proc: ChildProcess | null = null;
@@ -174,10 +175,12 @@ export class ProcessManager extends EventEmitter {
    */
   private async killPortHolder(): Promise<void> {
     try {
-      const result = execSync(
-        `/usr/sbin/lsof -nP -iTCP:${this.cfg.port} -sTCP:LISTEN -t 2>/dev/null || true`,
-        { encoding: "utf-8", timeout: 5000 },
-      ).trim();
+      const { stdout } = await this.runCommand(
+        "/usr/sbin/lsof",
+        ["-nP", `-iTCP:${this.cfg.port}`, "-sTCP:LISTEN", "-t"],
+        { timeoutMs: 5000, allowExitCodes: [1] },
+      );
+      const result = stdout.trim();
       if (!result) return;
       const pids = result.split("\n").map((p) => p.trim()).filter(Boolean);
       if (pids.length === 0) return;
@@ -188,7 +191,7 @@ export class ProcessManager extends EventEmitter {
       for (const pidText of pids) {
         const pid = Number(pidText);
         if (!Number.isInteger(pid) || pid <= 0) continue;
-        const command = this.getProcessCommand(pid);
+        const command = await this.getProcessCommand(pid);
         if (this.isMlxAudioProcess(command)) {
           stalePids.push(pid);
         } else {
@@ -239,12 +242,14 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
-  private getProcessCommand(pid: number): string {
+  private async getProcessCommand(pid: number): Promise<string> {
     try {
-      return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
+      const { stdout } = await this.runCommand(
+        "ps",
+        ["-p", String(pid), "-o", "command="],
+        { timeoutMs: 5000, allowExitCodes: [1] },
+      );
+      return stdout.trim();
     } catch {
       return "";
     }
@@ -262,6 +267,107 @@ export class ProcessManager extends EventEmitter {
     } catch {
       return false;
     }
+  }
+
+  private runCommand(
+    cmd: string,
+    args: string[],
+    options: { timeoutMs: number; allowExitCodes?: number[] },
+  ): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null }> {
+    return new Promise((resolve, reject) => {
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let timedOut = false;
+      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+      const allowedExitCodes = new Set(options.allowExitCodes ?? []);
+
+      const appendWithLimit = (current: string, chunk: string): string => {
+        const next = current + chunk;
+        if (next.length <= MAX_CAPTURED_COMMAND_OUTPUT_CHARS) {
+          return next;
+        }
+        return next.slice(next.length - MAX_CAPTURED_COMMAND_OUTPUT_CHARS);
+      };
+
+      const cleanup = (): void => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+      };
+
+      const finalizeReject = (message: string): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error(message));
+      };
+
+      const finalizeResolve = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          code,
+          signal,
+        });
+      };
+
+      let proc: ChildProcess;
+      try {
+        proc = spawn(cmd, args, {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env },
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        finalizeReject(msg);
+        return;
+      }
+
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        stdout = appendWithLimit(stdout, chunk.toString());
+      });
+
+      proc.stderr?.on("data", (chunk: Buffer) => {
+        stderr = appendWithLimit(stderr, chunk.toString());
+      });
+
+      proc.on("error", (err) => {
+        finalizeReject(err.message);
+      });
+
+      proc.on("close", (code, signal) => {
+        if (timedOut) {
+          const details = (stderr || stdout).trim();
+          finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
+          return;
+        }
+
+        if (code === 0 || (typeof code === "number" && allowedExitCodes.has(code))) {
+          finalizeResolve(code, signal);
+          return;
+        }
+
+        const details = (stderr || stdout).trim();
+        finalizeReject(
+          `Command failed (${cmd} ${args.join(" ")}): code=${code ?? "unknown"}${signal ? ` signal=${signal}` : ""}${details ? `\n${details}` : ""}`,
+        );
+      });
+
+      timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        timedOut = true;
+        proc.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => {
+          if (!proc.killed) {
+            proc.kill("SIGKILL");
+          }
+        }, 2000);
+      }, options.timeoutMs);
+    });
   }
 
   private spawn(): boolean {

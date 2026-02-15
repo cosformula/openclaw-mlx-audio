@@ -1,11 +1,12 @@
 /** Lightweight HTTP proxy that injects TTS preset params. */
 
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import http from "node:http";
 import type { MlxAudioConfig } from "./config.js";
 import { buildInjectedParams } from "./config.js";
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const MAX_CAPTURED_COMMAND_OUTPUT_CHARS = 16_384;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -22,7 +23,7 @@ export class TtsProxy {
 
   async start(): Promise<void> {
     if (this.server) return;
-    this.assertProxyPortAvailable();
+    await this.assertProxyPortAvailable();
 
     this.server = http.createServer((req, res) => {
       void this.handleRequest(req, res).catch((err: unknown) => {
@@ -192,27 +193,29 @@ export class TtsProxy {
     req.pipe(upstream);
   }
 
-  private assertProxyPortAvailable(): void {
-    const owners = this.listListeningPids(this.cfg.proxyPort);
+  private async assertProxyPortAvailable(): Promise<void> {
+    const owners = await this.listListeningPids(this.cfg.proxyPort);
     if (owners.length === 0) return;
-    const desc = owners
-      .map((pid) => {
-        const command = this.getProcessCommand(pid);
-        return `${pid}${command ? ` (${command})` : ""}`;
-      })
-      .join(", ");
+    const ownerDescriptions: string[] = [];
+    for (const pid of owners) {
+      const command = await this.getProcessCommand(pid);
+      ownerDescriptions.push(`${pid}${command ? ` (${command})` : ""}`);
+    }
+    const desc = ownerDescriptions.join(", ");
     throw new Error(
       `[mlx-audio] Proxy port ${this.cfg.proxyPort} is already in use by: ${desc}. ` +
       "Stop that process or change proxyPort.",
     );
   }
 
-  private listListeningPids(port: number): number[] {
+  private async listListeningPids(port: number): Promise<number[]> {
     try {
-      const output = execFileSync("/usr/sbin/lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
+      const { stdout } = await this.runCommand(
+        "/usr/sbin/lsof",
+        ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+        { timeoutMs: 5000, allowExitCodes: [1] },
+      );
+      const output = stdout.trim();
       if (!output) return [];
       return output
         .split("\n")
@@ -224,14 +227,117 @@ export class TtsProxy {
     }
   }
 
-  private getProcessCommand(pid: number): string {
+  private async getProcessCommand(pid: number): Promise<string> {
     try {
-      return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
+      const { stdout } = await this.runCommand(
+        "ps",
+        ["-p", String(pid), "-o", "command="],
+        { timeoutMs: 5000, allowExitCodes: [1] },
+      );
+      return stdout.trim();
     } catch {
       return "";
     }
+  }
+
+  private runCommand(
+    cmd: string,
+    args: string[],
+    options: { timeoutMs: number; allowExitCodes?: number[] },
+  ): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null }> {
+    return new Promise((resolve, reject) => {
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let timedOut = false;
+      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+      const allowedExitCodes = new Set(options.allowExitCodes ?? []);
+
+      const appendWithLimit = (current: string, chunk: string): string => {
+        const next = current + chunk;
+        if (next.length <= MAX_CAPTURED_COMMAND_OUTPUT_CHARS) {
+          return next;
+        }
+        return next.slice(next.length - MAX_CAPTURED_COMMAND_OUTPUT_CHARS);
+      };
+
+      const cleanup = (): void => {
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+      };
+
+      const finalizeReject = (message: string): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new Error(message));
+      };
+
+      const finalizeResolve = (code: number | null, signal: NodeJS.Signals | null): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve({
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          code,
+          signal,
+        });
+      };
+
+      let proc;
+      try {
+        proc = spawn(cmd, args, {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env },
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        finalizeReject(msg);
+        return;
+      }
+
+      proc.stdout?.on("data", (chunk: Buffer) => {
+        stdout = appendWithLimit(stdout, chunk.toString());
+      });
+
+      proc.stderr?.on("data", (chunk: Buffer) => {
+        stderr = appendWithLimit(stderr, chunk.toString());
+      });
+
+      proc.on("error", (err) => {
+        finalizeReject(err.message);
+      });
+
+      proc.on("close", (code, signal) => {
+        if (timedOut) {
+          const details = (stderr || stdout).trim();
+          finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
+          return;
+        }
+
+        if (code === 0 || (typeof code === "number" && allowedExitCodes.has(code))) {
+          finalizeResolve(code, signal);
+          return;
+        }
+
+        const details = (stderr || stdout).trim();
+        finalizeReject(
+          `Command failed (${cmd} ${args.join(" ")}): code=${code ?? "unknown"}${signal ? ` signal=${signal}` : ""}${details ? `\n${details}` : ""}`,
+        );
+      });
+
+      timeoutTimer = setTimeout(() => {
+        if (settled) return;
+        timedOut = true;
+        proc.kill("SIGTERM");
+        forceKillTimer = setTimeout(() => {
+          if (!proc.killed) {
+            proc.kill("SIGKILL");
+          }
+        }, 2000);
+      }, options.timeoutMs);
+    });
   }
 }
