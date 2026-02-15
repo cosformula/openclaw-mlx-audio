@@ -2,7 +2,7 @@
 
 import http from "node:http";
 import type { MlxAudioConfig } from "./config.js";
-import { buildInjectedParams } from "./config.js";
+import { buildInjectedParams, resolvePortBinding } from "./config.js";
 import { runCommand } from "./run-command.js";
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
@@ -20,9 +20,14 @@ export class TtsProxy {
     private ensureUpstreamReady?: () => Promise<void>,
   ) {}
 
+  updateConfig(cfg: MlxAudioConfig): void {
+    this.cfg = cfg;
+  }
+
   async start(): Promise<void> {
     if (this.server) return;
-    await this.assertProxyPortAvailable();
+    const { publicPort } = resolvePortBinding(this.cfg);
+    await this.assertProxyPortAvailable(publicPort);
 
     this.server = http.createServer((req, res) => {
       void this.handleRequest(req, res).catch((err: unknown) => {
@@ -36,12 +41,12 @@ export class TtsProxy {
     });
 
     return new Promise((resolve, reject) => {
-      this.server!.listen(this.cfg.proxyPort, "127.0.0.1", () => {
-        this.logger.info(`[mlx-audio] Proxy listening on 127.0.0.1:${this.cfg.proxyPort}`);
+      this.server!.listen(publicPort, "127.0.0.1", () => {
+        this.logger.info(`[mlx-audio] Proxy listening on 127.0.0.1:${publicPort}`);
         resolve();
       });
       this.server!.on("error", (err) => {
-        reject(new Error(`[mlx-audio] Failed to start proxy on port ${this.cfg.proxyPort}: ${(err as Error).message}`));
+        reject(new Error(`[mlx-audio] Failed to start proxy on port ${publicPort}: ${(err as Error).message}`));
       });
     });
   }
@@ -174,6 +179,7 @@ export class TtsProxy {
   }
 
   private forwardToUpstream(req: http.IncomingMessage, body: string, res: http.ServerResponse): void {
+    const { serverPort } = resolvePortBinding(this.cfg);
     const headers: http.OutgoingHttpHeaders = { ...req.headers };
     delete headers.host;
     delete headers["content-length"];
@@ -183,7 +189,7 @@ export class TtsProxy {
 
     const options: http.RequestOptions = {
       hostname: "127.0.0.1",
-      port: this.cfg.port,
+      port: serverPort,
       path: "/v1/audio/speech",
       method: "POST",
       headers,
@@ -215,9 +221,10 @@ export class TtsProxy {
   }
 
   private proxyRaw(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const { serverPort } = resolvePortBinding(this.cfg);
     const options: http.RequestOptions = {
       hostname: "127.0.0.1",
-      port: this.cfg.port,
+      port: serverPort,
       path: req.url,
       method: req.method,
       headers: req.headers,
@@ -246,8 +253,8 @@ export class TtsProxy {
     req.pipe(upstream);
   }
 
-  private async assertProxyPortAvailable(): Promise<void> {
-    const owners = await this.listListeningPids(this.cfg.proxyPort);
+  private async assertProxyPortAvailable(port: number): Promise<void> {
+    const owners = await this.listListeningPids(port);
     if (owners.length === 0) return;
     const ownerDescriptions: string[] = [];
     for (const pid of owners) {
@@ -256,8 +263,8 @@ export class TtsProxy {
     }
     const desc = ownerDescriptions.join(", ");
     throw new Error(
-      `[mlx-audio] Proxy port ${this.cfg.proxyPort} is already in use by: ${desc}. ` +
-      "Stop that process or change proxyPort.",
+      `[mlx-audio] Proxy port ${port} is already in use by: ${desc}. ` +
+      "Stop that process or change port.",
     );
   }
 

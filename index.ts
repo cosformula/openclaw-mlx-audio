@@ -5,7 +5,7 @@
  * Zero API key, zero cloud dependency.
  */
 
-import { resolveConfig, type MlxAudioConfig } from "./src/config.js";
+import { resolveConfig, resolvePortBinding, type MlxAudioConfig } from "./src/config.js";
 import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
@@ -56,6 +56,7 @@ interface PluginApi {
 const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
 const STARTUP_HEALTH_INTERVAL_MS = 500;
 const STARTUP_HEALTH_TIMEOUT_MS = STARTUP_HEALTH_MAX_ATTEMPTS * STARTUP_HEALTH_INTERVAL_MS;
+const CONFIG_REFRESH_INTERVAL_MS = 2000;
 const GENERATE_REQUEST_TIMEOUT_MS = 600_000;
 const MAX_AUDIO_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_ERROR_DETAIL_BYTES = 8 * 1024;
@@ -254,8 +255,9 @@ async function validateExternalPython(pythonExecutable: string, logger: Logger):
 }
 
 export default function register(api: PluginApi) {
-  const rawConfig = readRawConfig(api, PLUGIN_ID);
-  const cfg = resolveConfig(rawConfig);
+  let cfg = resolveConfig(readRawConfig(api, PLUGIN_ID));
+  let portBinding = resolvePortBinding(cfg);
+  let configFingerprint = JSON.stringify(cfg);
   const logger = api.logger;
 
   // Data dir for managed runtime and models (~/.openclaw/mlx-audio/)
@@ -265,7 +267,7 @@ export default function register(api: PluginApi) {
   const systemTmpDir = path.resolve(os.tmpdir());
   const homeDir = os.homedir();
   const venvMgr = new VenvManager(dataDir, logger);
-  const startupStatus = new StartupStatusTracker(cfg.model, homeDir, logger);
+  let startupStatus = new StartupStatusTracker(cfg.model, homeDir, logger);
   let pythonRuntimePrepared = false;
 
   const procMgr = new ProcessManager(cfg, logger);
@@ -273,19 +275,105 @@ export default function register(api: PluginApi) {
     logger.error("[mlx-audio] Restart budget exhausted, server will remain stopped until manual intervention");
   });
   let serviceRunning = false;
-  const health = new HealthChecker(cfg.port, cfg.healthCheckIntervalMs, logger, () => {
-    if (cfg.restartOnCrash && procMgr.isRunning()) {
-      logger.warn("[mlx-audio] Server unhealthy, restarting...");
-      procMgr
-        .restart({ resetCrashCounter: false, reason: "health check failures" })
-        .catch((err) => logger.error(`[mlx-audio] Restart failed: ${err}`));
-    }
-  });
+  let health = createHealthChecker(cfg);
   let ensureServerPromise: Promise<void> | null = null;
+  let configQueue: Promise<void> = Promise.resolve();
+  let configRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   function createStartupTimeoutError(): Error {
     const detail = formatStartupStatusForError(startupStatus.getSnapshot());
     return new Error(`[mlx-audio] Server did not pass health check within ${STARTUP_HEALTH_TIMEOUT_MS}ms. ${detail}`);
+  }
+
+  function createHealthChecker(currentCfg: MlxAudioConfig): HealthChecker {
+    const ports = resolvePortBinding(currentCfg);
+    return new HealthChecker(ports.serverPort, currentCfg.healthCheckIntervalMs, logger, () => {
+      if (cfg.restartOnCrash && procMgr.isRunning()) {
+        logger.warn("[mlx-audio] Server unhealthy, restarting...");
+        procMgr
+          .restart({ resetCrashCounter: false, reason: "health check failures" })
+          .catch((err) => logger.error(`[mlx-audio] Restart failed: ${err}`));
+      }
+    });
+  }
+
+  async function runConfigTask(task: () => Promise<void>): Promise<void> {
+    const previous = configQueue;
+    let release: () => void = () => {};
+    configQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      await task();
+    } finally {
+      release();
+    }
+  }
+
+  async function applyConfig(reason: string, options?: { force?: boolean }): Promise<{ changed: boolean; restartedServer: boolean }> {
+    let changed = false;
+    let restartServerAfterApply = false;
+
+    await runConfigTask(async () => {
+      const nextCfg = resolveConfig(readRawConfig(api, PLUGIN_ID));
+      const nextFingerprint = JSON.stringify(nextCfg);
+      const shouldApply = options?.force === true || nextFingerprint !== configFingerprint;
+      if (!shouldApply) return;
+
+      changed = nextFingerprint !== configFingerprint;
+      const wasServerRunning = procMgr.isRunning();
+      const runtimeChanged =
+        cfg.pythonEnvMode !== nextCfg.pythonEnvMode ||
+        cfg.pythonExecutable !== nextCfg.pythonExecutable;
+
+      logger.info(`[mlx-audio] Applying configuration ${changed ? "update" : "reload"} (${reason})...`);
+
+      // Avoid mixing two startup flows while ports/runtime are being reconfigured.
+      if (ensureServerPromise) {
+        await ensureServerPromise.catch(() => undefined);
+      }
+
+      health.stop();
+      await proxy.stop().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[mlx-audio] Failed to stop proxy during config apply: ${msg}`);
+      });
+      await procMgr.stop().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[mlx-audio] Failed to stop server during config apply: ${msg}`);
+      });
+
+      cfg = nextCfg;
+      configFingerprint = nextFingerprint;
+      portBinding = resolvePortBinding(cfg);
+      procMgr.updateConfig(cfg);
+      procMgr.resetCrashCounter();
+      if (runtimeChanged) {
+        pythonRuntimePrepared = false;
+      }
+
+      startupStatus = new StartupStatusTracker(cfg.model, homeDir, logger);
+      startupStatus.markIdle("configuration applied");
+      health = createHealthChecker(cfg);
+      proxy.updateConfig(cfg);
+
+      if (serviceRunning) {
+        await proxy.start();
+        restartServerAfterApply = wasServerRunning;
+      }
+
+      logger.info(
+        `[mlx-audio] Configuration applied (${reason}), tts=${portBinding.publicPort}, server=${portBinding.serverPort}, mode=${portBinding.mode}`,
+      );
+    });
+
+    if (restartServerAfterApply) {
+      await ensureServerReady();
+    }
+
+    return { changed, restartedServer: restartServerAfterApply };
   }
 
   async function ensurePythonRuntimeReady(): Promise<void> {
@@ -322,7 +410,7 @@ export default function register(api: PluginApi) {
       if (snapshot.inProgress) {
         startupStatus.markWaitingHealth("Waiting for /v1/models health check...");
       }
-      const healthy = await waitForServerHealthy(cfg.port);
+      const healthy = await waitForServerHealthy(portBinding.serverPort);
       if (!healthy) {
         if (!snapshot.inProgress) {
           startupStatus.begin("Checking running server health...");
@@ -356,7 +444,7 @@ export default function register(api: PluginApi) {
           throw new Error("Plugin service stopped during startup");
         }
         startupStatus.markWaitingHealth("Waiting for /v1/models health check...");
-        const healthy = await waitForServerHealthy(cfg.port);
+        const healthy = await waitForServerHealthy(portBinding.serverPort);
         if (!healthy) {
           throw createStartupTimeoutError();
         }
@@ -391,7 +479,36 @@ export default function register(api: PluginApi) {
 
   const proxy = new TtsProxy(cfg, logger, ensureServerReady);
 
+  function stopConfigRefreshLoop(): void {
+    if (!configRefreshTimer) return;
+    clearTimeout(configRefreshTimer);
+    configRefreshTimer = null;
+  }
+
+  function scheduleConfigRefreshLoop(delayMs: number): void {
+    configRefreshTimer = setTimeout(() => {
+      configRefreshTimer = null;
+      if (!serviceRunning) return;
+      void applyConfig("background config poll")
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error(`[mlx-audio] Background config refresh failed: ${msg}`);
+        })
+        .finally(() => {
+          if (serviceRunning) {
+            scheduleConfigRefreshLoop(CONFIG_REFRESH_INTERVAL_MS);
+          }
+        });
+    }, delayMs);
+  }
+
+  function startConfigRefreshLoop(): void {
+    if (configRefreshTimer || !serviceRunning) return;
+    scheduleConfigRefreshLoop(CONFIG_REFRESH_INTERVAL_MS);
+  }
+
   async function generateAudioViaProxy(text: string, outputPath?: string): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string; statusCode?: number }> {
+    await applyConfig("generate request");
     try {
       await ensureServerReady();
     } catch (err: unknown) {
@@ -410,7 +527,7 @@ export default function register(api: PluginApi) {
       const req = http.request(
         {
           hostname: "127.0.0.1",
-          port: cfg.proxyPort,
+          port: portBinding.publicPort,
           path: "/v1/audio/speech",
           method: "POST",
           headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
@@ -498,8 +615,10 @@ export default function register(api: PluginApi) {
     id: "mlx-audio",
     start: async () => {
       try {
+        await applyConfig("service start");
         serviceRunning = true;
         await proxy.start();
+        startConfigRefreshLoop();
         if (cfg.autoStart) {
           void ensureServerReady().catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err);
@@ -508,14 +627,16 @@ export default function register(api: PluginApi) {
         } else {
           logger.info("[mlx-audio] autoStart=false, server will start on first speech/models/generate/test request");
         }
-        logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, proxy: ${cfg.proxyPort})`);
+        logger.info(`[mlx-audio] Plugin ready (model: ${cfg.model}, tts=${portBinding.publicPort}, server=${portBinding.serverPort})`);
       } catch (err) {
         serviceRunning = false;
+        stopConfigRefreshLoop();
         throw err;
       }
     },
     stop: async () => {
       serviceRunning = false;
+      stopConfigRefreshLoop();
       health.stop();
       await proxy.stop();
       await procMgr.stop();
@@ -529,13 +650,13 @@ export default function register(api: PluginApi) {
   api.registerTool({
     name: "mlx_audio_tts",
     description:
-      "Generate speech audio locally using mlx-audio. Actions: generate (text→audio), status (server info).",
+      "Generate speech audio locally using mlx-audio. Actions: generate (text→audio), status (server info), reload (apply latest config).",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["generate", "status"],
+          enum: ["generate", "status", "reload"],
           description: "Action to perform",
         },
         text: { type: "string", description: "Text to synthesize (for generate)" },
@@ -547,6 +668,7 @@ export default function register(api: PluginApi) {
       const action = params.action as string;
 
       if (action === "status") {
+        await applyConfig("tool status");
         const status = procMgr.getStatus();
         const startup = startupStatus.getSnapshot();
         const result = {
@@ -556,12 +678,32 @@ export default function register(api: PluginApi) {
             model: cfg.model,
             port: cfg.port,
             proxyPort: cfg.proxyPort,
+            ttsPort: portBinding.publicPort,
+            serverPort: portBinding.serverPort,
+            portMode: portBinding.mode,
             langCode: cfg.langCode,
             pythonEnvMode: cfg.pythonEnvMode,
             pythonExecutable: cfg.pythonEnvMode === "external" ? cfg.pythonExecutable : undefined,
           },
         };
         return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      if (action === "reload") {
+        const result = await applyConfig("tool reload", { force: true });
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              changed: result.changed,
+              restartedServer: result.restartedServer,
+              ttsPort: portBinding.publicPort,
+              serverPort: portBinding.serverPort,
+              portMode: portBinding.mode,
+            }),
+          }],
+        };
       }
 
       if (action === "generate") {
@@ -580,13 +722,14 @@ export default function register(api: PluginApi) {
 
   api.registerCommand({
     name: "mlx-tts",
-    description: "MLX Audio TTS: /mlx-tts status | /mlx-tts test <text>",
+    description: "MLX Audio TTS: /mlx-tts status | /mlx-tts test <text> | /mlx-tts reload",
     acceptsArgs: true,
     handler: async (ctx) => {
       const args = (ctx.args ?? "").trim();
       const [subCmd, ...rest] = args.split(/\s+/);
 
       if (!subCmd || subCmd === "status") {
+        await applyConfig("command status");
         const status = procMgr.getStatus();
         const startup = startupStatus.getSnapshot();
         const uptime = status.startedAt ? Math.round((Date.now() - status.startedAt) / 1000) : 0;
@@ -596,7 +739,7 @@ export default function register(api: PluginApi) {
             `Server: ${status.running ? "running" : "stopped"}${status.pid ? ` (PID ${status.pid})` : ""}`,
             `Startup: ${formatStartupStatusForDisplay(startup)}`,
             `Model: ${cfg.model}`,
-            `Ports: server=${cfg.port} proxy=${cfg.proxyPort}`,
+            `Ports: tts=${portBinding.publicPort} server=${portBinding.serverPort} (${portBinding.mode})`,
             cfg.pythonEnvMode === "external"
               ? `Python: external (${cfg.pythonExecutable})`
               : "Python: managed (uv.lock, ~/.openclaw/mlx-audio/runtime/.venv)",
@@ -608,7 +751,20 @@ export default function register(api: PluginApi) {
         };
       }
 
+      if (subCmd === "reload") {
+        const result = await applyConfig("command reload", { force: true });
+        return {
+          text: [
+            "Configuration reloaded",
+            `Changed: ${result.changed ? "yes" : "no"}`,
+            `Server restarted: ${result.restartedServer ? "yes" : "no"}`,
+            `Ports: tts=${portBinding.publicPort} server=${portBinding.serverPort} (${portBinding.mode})`,
+          ].join("\n"),
+        };
+      }
+
       if (subCmd === "test") {
+        await applyConfig("command test");
         const text = rest.join(" ") || "Hello, this is a test of local text to speech.";
         const startedAt = Date.now();
         const result = await generateAudioViaProxy(text);
@@ -619,7 +775,7 @@ export default function register(api: PluginApi) {
         return { text: `Test succeeded in ${elapsed} ms\nFile: ${result.path}\nBytes: ${result.bytes}` };
       }
 
-      return { text: `Unknown subcommand: ${subCmd}. Use: status, test` };
+      return { text: `Unknown subcommand: ${subCmd}. Use: status, test, reload` };
     },
   });
 }

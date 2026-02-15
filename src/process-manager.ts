@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
-import type { MlxAudioConfig } from "./config.js";
+import { resolvePortBinding, type MlxAudioConfig } from "./config.js";
 import { runCommand } from "./run-command.js";
 
 /** Rough memory estimates (MB) for model loading. Conservative. */
@@ -62,6 +62,11 @@ export class ProcessManager extends EventEmitter {
   setManagedRuntime(uvBin: string, launchArgsPrefix: string[]): void {
     this.pythonBin = uvBin;
     this.launchArgsPrefix = [...launchArgsPrefix];
+  }
+
+  /** Update runtime config without recreating manager instance. */
+  updateConfig(cfg: MlxAudioConfig): void {
+    this.cfg = cfg;
   }
 
   /** Reset crash counter — call on config change or manual restart. */
@@ -151,10 +156,11 @@ export class ProcessManager extends EventEmitter {
    * Prevents "Address already in use" from zombie processes.
    */
   private async killPortHolder(): Promise<void> {
+    const { serverPort } = resolvePortBinding(this.cfg);
     try {
       const { stdout } = await this.runCommand(
         "/usr/sbin/lsof",
-        ["-nP", `-iTCP:${this.cfg.port}`, "-sTCP:LISTEN", "-t"],
+        ["-nP", `-iTCP:${serverPort}`, "-sTCP:LISTEN", "-t"],
         { timeoutMs: 5000, allowExitCodes: [1] },
       );
       const result = stdout.trim();
@@ -178,13 +184,13 @@ export class ProcessManager extends EventEmitter {
 
       if (foreignOwners.length > 0) {
         throw new Error(
-          `[mlx-audio] Port ${this.cfg.port} is in use by non-mlx process(es): ${foreignOwners.join(", ")}. ` +
+          `[mlx-audio] Port ${serverPort} is in use by non-mlx process(es): ${foreignOwners.join(", ")}. ` +
           "Choose a different port or stop that process manually.",
         );
       }
 
       if (stalePids.length > 0) {
-        this.logger.warn(`[mlx-audio] Stopping stale mlx-audio process(es) on port ${this.cfg.port}: ${stalePids.join(", ")}`);
+        this.logger.warn(`[mlx-audio] Stopping stale mlx-audio process(es) on port ${serverPort}: ${stalePids.join(", ")}`);
         for (const pid of stalePids) {
           try {
             process.kill(pid, "SIGTERM");
@@ -209,11 +215,11 @@ export class ProcessManager extends EventEmitter {
         }
       }
     } catch (err: unknown) {
-      if (err instanceof Error && err.message.startsWith(`[mlx-audio] Port ${this.cfg.port} is in use by non-mlx process(es):`)) {
+      if (err instanceof Error && err.message.startsWith(`[mlx-audio] Port ${serverPort} is in use by non-mlx process(es):`)) {
         throw err;
       }
       this.logger.warn(
-        `[mlx-audio] Could not inspect existing port owner for ${this.cfg.port}. ` +
+        `[mlx-audio] Could not inspect existing port owner for ${serverPort}. ` +
         "If startup fails with address-in-use, stop the conflicting process manually.",
       );
     }
@@ -254,9 +260,10 @@ export class ProcessManager extends EventEmitter {
       return false;
     }
     this.clearRestartTimer();
+    const { serverPort } = resolvePortBinding(this.cfg);
     // Use a writable directory for cwd and logs (mlx_audio.server creates a logs/ dir)
     const { dataDir, logDir } = this.ensureRuntimeDirs();
-    const serverArgs = ["-m", "mlx_audio.server", "--port", String(this.cfg.port), "--workers", String(this.cfg.workers), "--log-dir", logDir];
+    const serverArgs = ["-m", "mlx_audio.server", "--port", String(serverPort), "--workers", String(this.cfg.workers), "--log-dir", logDir];
     const args = [...this.launchArgsPrefix, ...serverArgs];
     this.logger.info(`[mlx-audio] Starting: ${this.pythonBin} ${args.join(" ")}`);
 

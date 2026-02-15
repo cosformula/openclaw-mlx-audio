@@ -3,7 +3,6 @@
  * Bootstraps uv, syncs dependencies from uv.lock, and provides launch metadata.
  */
 
-import { spawn } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
@@ -15,13 +14,13 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runCommand } from "./run-command.js";
 
 const PYTHON_VERSION = "3.12";
 const UV_RELEASE_BASE_URL = "https://github.com/astral-sh/uv/releases/latest/download";
 const UV_DOWNLOAD_TIMEOUT_MS = 60_000;
 const UV_DOWNLOAD_MAX_ATTEMPTS = 3;
 const UV_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_500;
-const MAX_CAPTURED_OUTPUT_CHARS = 16_384;
 const RUNTIME_TEMPLATE_DIR = "python-runtime";
 const RUNTIME_PROJECT_DIR = "runtime";
 const RUNTIME_FILES = ["pyproject.toml", "uv.lock"] as const;
@@ -257,94 +256,12 @@ export class VenvManager {
     }
   }
 
-  private runCommand(
+  private async runCommand(
     cmd: string,
     args: string[],
     options: { timeoutMs: number; env?: NodeJS.ProcessEnv; cwd?: string },
   ): Promise<{ stdout: string; stderr: string }> {
-    return new Promise((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      let timedOut = false;
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const appendWithLimit = (current: string, chunk: string): string => {
-        const next = current + chunk;
-        if (next.length <= MAX_CAPTURED_OUTPUT_CHARS) {
-          return next;
-        }
-        return next.slice(next.length - MAX_CAPTURED_OUTPUT_CHARS);
-      };
-
-      const finalizeReject = (message: string): void => {
-        if (settled) return;
-        settled = true;
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-        reject(new Error(message));
-      };
-
-      const finalizeResolve = (): void => {
-        if (settled) return;
-        settled = true;
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
-      };
-
-      let proc;
-      try {
-        proc = spawn(cmd, args, {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: options.env,
-          cwd: options.cwd,
-        });
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        finalizeReject(msg);
-        return;
-      }
-
-      proc.stdout?.on("data", (chunk: Buffer) => {
-        stdout = appendWithLimit(stdout, chunk.toString());
-      });
-
-      proc.stderr?.on("data", (chunk: Buffer) => {
-        stderr = appendWithLimit(stderr, chunk.toString());
-      });
-
-      proc.on("error", (err) => {
-        finalizeReject(err.message);
-      });
-
-      proc.on("close", (code, signal) => {
-        if (timedOut) {
-          const details = (stderr || stdout).trim();
-          finalizeReject(`Timed out after ${options.timeoutMs}ms${details ? `\n${details}` : ""}`);
-          return;
-        }
-
-        if (code === 0) {
-          finalizeResolve();
-          return;
-        }
-
-        const details = (stderr || stdout).trim();
-        finalizeReject(`Exited with code ${code ?? "unknown"}${signal ? ` (signal: ${signal})` : ""}${details ? `\n${details}` : ""}`);
-      });
-
-      timeoutTimer = setTimeout(() => {
-        if (settled) return;
-        timedOut = true;
-        proc.kill("SIGTERM");
-        forceKillTimer = setTimeout(() => {
-          if (!proc.killed) {
-            proc.kill("SIGKILL");
-          }
-        }, 2000);
-      }, options.timeoutMs);
-    });
+    const { stdout, stderr } = await runCommand(cmd, args, options);
+    return { stdout, stderr };
   }
 }

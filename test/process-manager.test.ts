@@ -157,3 +157,34 @@ test("ProcessManager ensures runtime directories exist before spawn", () => {
     fs.rmSync(tempHome, { recursive: true, force: true });
   }
 });
+
+test("ProcessManager setManagedRuntime and setPythonBin update launch settings", () => {
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig(undefined);
+  const manager = new ProcessManager(cfg, logger) as any;
+
+  manager.setManagedRuntime("/tmp/uv-bin", ["run", "--project", "/tmp/runtime", "--", "python"]);
+  assert.equal(manager.pythonBin, "/tmp/uv-bin");
+  assert.deepEqual(manager.launchArgsPrefix, ["run", "--project", "/tmp/runtime", "--", "python"]);
+
+  manager.setPythonBin("/tmp/python-bin");
+  assert.equal(manager.pythonBin, "/tmp/python-bin");
+  assert.deepEqual(manager.launchArgsPrefix, []);
+});
+
+test("ProcessManager consumeRestartBudget emits max-restarts once limit is reached", () => {
+  const { logger, errors } = createLoggerStore();
+  const cfg = resolveConfig({ maxRestarts: 1 });
+  const manager = new ProcessManager(cfg, logger) as any;
+
+  let emitted = 0;
+  manager.on("max-restarts", () => {
+    emitted += 1;
+  });
+
+  assert.equal(manager.consumeRestartBudget("first crash"), true);
+  assert.equal(manager.consumeRestartBudget("second crash"), false);
+  assert.equal(manager.consumeRestartBudget("third crash"), false);
+  assert.equal(emitted, 1);
+  assert.equal(errors.some((message) => message.includes("Restart limit reached (1).")), true);
+});

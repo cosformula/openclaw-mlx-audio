@@ -73,7 +73,7 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 {
   "env": {
     "vars": {
-      "OPENAI_TTS_BASE_URL": "http://127.0.0.1:19281/v1"
+      "OPENAI_TTS_BASE_URL": "http://127.0.0.1:19280/v1"
     }
   },
   "messages": {
@@ -88,12 +88,15 @@ The default configuration uses Kokoro-82M with American English. For Chinese, se
 ### 4. Restart OpenClaw
 
 On startup, the plugin will:
-- Start a proxy on port 19281
+- Start a proxy on the configured `port` (default `19280`)
+- Launch `mlx_audio.server` on an internal derived port (default `19281`)
 - If `autoStart: true`, warm up the mlx-audio server in the background
 - If `autoStart: false`, start the server on first `/v1/audio/speech`, `GET /v1/models`, tool `generate`, or `/mlx-tts test`
 - Require upstream `/v1/models` health to pass within about 10 seconds during startup, otherwise the request returns unavailable and startup is retried on next request
 - If `pythonEnvMode: managed`, bootstrap `uv` into `~/.openclaw/mlx-audio/bin/uv`, sync `~/.openclaw/mlx-audio/runtime/` from bundled `pyproject.toml` and `uv.lock`, then launch the server via `uv run --project ...`
 - If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
+
+Plugin config is refreshed in the background while the service is running (every ~2 seconds). You can also run `/mlx-tts reload` (or tool action `reload`) to force immediate apply without restarting the OpenClaw gateway.
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). During startup, `/mlx-tts status` and tool action `status` report startup phase and approximate model cache progress (text bar + percentage). If startup times out, the 503 `detail` returned to OpenClaw includes the same status snapshot. No network connection is needed after the initial download.
 
@@ -173,8 +176,8 @@ All fields are optional:
 | Field | Default | Description |
 |---|---|---|
 | `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace model ID |
-| `port` | `19280` | mlx-audio server port |
-| `proxyPort` | `19281` | Proxy port (OpenClaw connects to this) |
+| `port` | `19280` | Public OpenAI-compatible TTS endpoint port (`OPENAI_TTS_BASE_URL`) |
+| `proxyPort` | | Legacy compatibility field. When set, `port` is treated as server port and `proxyPort` as public endpoint port |
 | `workers` | `1` | Uvicorn worker count |
 | `speed` | `1.0` | Speech speed multiplier |
 | `langCode` | `a` | Language code |
@@ -189,10 +192,9 @@ All fields are optional:
 
 ## Architecture
 
-```
-OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silicon GPU
-                  ↑ injects model,
-                    lang_code, speed
+```text
+OpenClaw tts() -> proxy (:port, default 19280) -> mlx_audio.server (:internal, default 19281) -> Apple Silicon GPU
+                 ^ injects model, lang_code, speed
 ```
 
 OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional parameters required by mlx-audio (full model ID, language code, etc.) are not part of the OpenAI API specification.
@@ -223,10 +225,10 @@ Logs will show `⚠️ Server was killed by SIGKILL (likely out-of-memory)`. The
 
 **Port conflict**
 
-The plugin only cleans up stale `mlx_audio.server` processes on the target port. If another app is using the configured port, stop it manually or change `port`/`proxyPort`:
+The plugin only cleans up stale `mlx_audio.server` processes on the internal server port. If another app is using the configured port, stop it manually or change `port`:
 
 ```bash
-# 1) Inspect who owns the port first
+# 1) Inspect who owns the public port first (internal server port is +1 in single-port mode)
 /usr/sbin/lsof -nP -iTCP:19280 -sTCP:LISTEN
 
 # 2) Only if the command is mlx_audio.server, terminate it gracefully

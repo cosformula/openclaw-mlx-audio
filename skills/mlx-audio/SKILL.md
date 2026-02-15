@@ -38,6 +38,7 @@ Also includes startup phase and approximate model cache download progress when w
 |---|---|
 | `/mlx-tts status` | Server status, startup phase, and approximate model cache progress |
 | `/mlx-tts test <text>` | Generate and send a test audio |
+| `/mlx-tts reload` | Reload plugin config without restarting the OpenClaw gateway |
 
 ## Models
 
@@ -56,9 +57,11 @@ Also includes startup phase and approximate model cache download progress when w
 - Startup status tracks phase and approximate model cache progress (text bar + percentage). The same status appears in startup timeout error details returned to OpenClaw.
 - `pythonEnvMode: managed` (default) bootstraps `uv`, syncs `~/.openclaw/mlx-audio/runtime/` from bundled `pyproject.toml` and `uv.lock`, and launches with `uv run --project ...`.
 - `pythonEnvMode: external` uses `pythonExecutable` directly after validating Python 3.11-3.13 and required modules.
+- Single-port mode is the default: `port` is the public OpenAI-compatible endpoint, and the server uses an internal derived port.
+- `proxyPort` is a legacy compatibility field. When set, the plugin uses legacy dual-port semantics.
 - First generation may be slower due to model warmup.
 - The server runs as a background subprocess and auto-restarts on crash.
 - Proxy requests are canceled upstream when the downstream client disconnects before completion.
 - Generated audio is streamed to disk, and payloads larger than 64 MB are rejected to avoid memory spikes.
 - Output path safety checks use async filesystem operations and still reject symbolic-link path segments.
-- Config is set in `openclaw.json` under `plugins.entries.openclaw-mlx-audio.config`. Model, language, voice, or Python runtime mode changes require a gateway restart.
+- Config is set in `openclaw.json` under `plugins.entries.openclaw-mlx-audio.config`. Changes are auto-applied by background refresh while service is running (about every 2 seconds), and `/mlx-tts reload` or tool action `reload` can force immediate apply.

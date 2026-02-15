@@ -51,7 +51,7 @@ export type PythonEnvMode = "managed" | "external";
  */
 export interface MlxAudioConfig {
   port: number;
-  proxyPort: number;
+  proxyPort?: number;
   model: string;
   pythonEnvMode: PythonEnvMode;
   pythonExecutable?: string;
@@ -71,10 +71,15 @@ export interface MlxAudioConfig {
   workers: number;
 }
 
+export interface PortBinding {
+  publicPort: number;
+  serverPort: number;
+  mode: "single-port" | "legacy-dual-port";
+}
+
 /** All required keys with their schema-declared defaults. */
 const DEFAULTS: MlxAudioConfig = {
   port: 19280,
-  proxyPort: 19281,
   model: "mlx-community/Kokoro-82M-bf16",
   pythonEnvMode: "managed",
   speed: 1.0,
@@ -120,10 +125,10 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
   if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
     errors.push("port must be an integer between 1 and 65535");
   }
-  if (!Number.isInteger(cfg.proxyPort) || cfg.proxyPort < 1 || cfg.proxyPort > 65535) {
-    errors.push("proxyPort must be an integer between 1 and 65535");
+  if (cfg.proxyPort !== undefined && (!Number.isInteger(cfg.proxyPort) || cfg.proxyPort < 1 || cfg.proxyPort > 65535)) {
+    errors.push("proxyPort must be an integer between 1 and 65535 when provided");
   }
-  if (cfg.port === cfg.proxyPort) {
+  if (cfg.proxyPort !== undefined && cfg.port === cfg.proxyPort) {
     errors.push("port and proxyPort must be different");
   }
   if (!(Number.isFinite(cfg.speed) && cfg.speed > 0)) {
@@ -159,6 +164,28 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
   }
 
   return cfg;
+}
+
+export function resolvePortBinding(cfg: MlxAudioConfig): PortBinding {
+  if (typeof cfg.proxyPort === "number") {
+    return {
+      publicPort: cfg.proxyPort,
+      serverPort: cfg.port,
+      mode: "legacy-dual-port",
+    };
+  }
+
+  const publicPort = cfg.port;
+  const serverPort = publicPort < 65535 ? publicPort + 1 : publicPort - 1;
+  if (serverPort < 1 || serverPort > 65535 || serverPort === publicPort) {
+    throw new Error(`[mlx-audio] Unable to derive internal server port from port=${publicPort}`);
+  }
+
+  return {
+    publicPort,
+    serverPort,
+    mode: "single-port",
+  };
 }
 
 // ---------- upstream params builder ----------------------------------------

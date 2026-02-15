@@ -3,14 +3,14 @@
   "name": "mlx-audio",
   "displayName": "MLX Audio (Local TTS)",
   "description": "Local TTS on Apple Silicon via mlx-audio. Zero API key, zero cloud.",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "skills": ["skills/mlx-audio"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 19280, "description": "mlx_audio.server port" },
-      "proxyPort": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 19281, "description": "Proxy port" },
+      "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 19280, "description": "Public OpenAI-compatible TTS endpoint port" },
+      "proxyPort": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "Legacy compatibility field. If set, port=mlx_audio.server and proxyPort=public endpoint" },
       "model": { "type": "string", "minLength": 1, "default": "mlx-community/Kokoro-82M-bf16", "description": "HuggingFace model ID" },
       "pythonEnvMode": {
         "type": "string",
@@ -39,8 +39,8 @@
     }
   },
   "uiHints": {
-    "port": { "label": "Server Port" },
-    "proxyPort": { "label": "Proxy Port" },
+    "port": { "label": "TTS Port" },
+    "proxyPort": { "label": "Legacy Proxy Port" },
     "model": { "label": "Model", "placeholder": "mlx-community/Kokoro-82M-bf16" },
     "pythonEnvMode": { "label": "Python Env Mode" },
     "pythonExecutable": { "label": "Python Executable", "placeholder": "/opt/homebrew/bin/python3.12" },

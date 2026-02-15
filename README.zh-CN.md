@@ -73,7 +73,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 {
   "env": {
     "vars": {
-      "OPENAI_TTS_BASE_URL": "http://127.0.0.1:19281/v1"
+      "OPENAI_TTS_BASE_URL": "http://127.0.0.1:19280/v1"
     }
   },
   "messages": {
@@ -88,12 +88,15 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 ### 4. 重启 OpenClaw
 
 插件启动时会自动完成以下步骤：
-- 在端口 19281 启动代理服务
+- 在配置的 `port` 启动代理服务（默认 `19280`）
+- 在内部派生端口启动 `mlx_audio.server`（默认 `19281`）
 - 若 `autoStart: true`，后台预热 mlx-audio 服务
 - 若 `autoStart: false`，在首次 `/v1/audio/speech`、`GET /v1/models`、tool `generate` 或 `/mlx-tts test` 时拉起服务
 - 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用，下次请求再重试启动
 - 若 `pythonEnvMode: managed`，首次运行时将 `uv` 安装到 `~/.openclaw/mlx-audio/bin/uv`，随后根据内置 `pyproject.toml` 与 `uv.lock` 同步 `~/.openclaw/mlx-audio/runtime/`，并通过 `uv run --project ...` 启动服务
 - 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
+
+服务运行期间会后台轮询配置并自动应用（约每 2 秒一次）。也可执行 `/mlx-tts reload`（或 tool action `reload`）立即热更新，无需重启 OpenClaw 网关。
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。启动阶段可通过 `/mlx-tts status` 与 tool `status` 查看启动阶段和模型缓存近似下载进度（文本进度条 + 百分比）。若启动超时，返回给 OpenClaw 的 503 `detail` 也会包含相同状态信息。模型下载完成后不再需要网络连接。
 
@@ -173,8 +176,8 @@ Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通�
 | 字段 | 默认值 | 说明 |
 |---|---|---|
 | `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace 模型 ID |
-| `port` | `19280` | mlx-audio 服务端口 |
-| `proxyPort` | `19281` | 代理端口（OpenClaw 连接此端口） |
+| `port` | `19280` | 对外 OpenAI 兼容 TTS 端点端口（`OPENAI_TTS_BASE_URL`） |
+| `proxyPort` | | 兼容旧配置字段。设置后按旧语义运行，即 `port` 作为 server 端口，`proxyPort` 作为对外端口 |
 | `workers` | `1` | Uvicorn worker 数 |
 | `speed` | `1.0` | 语速倍率 |
 | `langCode` | `a` | 语言代码 |
@@ -189,10 +192,9 @@ Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通�
 
 ## 架构
 
-```
-OpenClaw tts() → 代理 (:19281) → mlx_audio.server (:19280) → Apple Silicon GPU
-                  ↑ 注入 model,
-                    lang_code, speed
+```text
+OpenClaw tts() -> 代理 (:port，默认 19280) -> mlx_audio.server (:内部端口，默认 19281) -> Apple Silicon GPU
+                 ^ 注入 model、lang_code、speed
 ```
 
 OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需要的额外参数（完整模型 ID、语言代码等）不在 OpenAI API 规范中。
@@ -223,10 +225,10 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 
 **端口占用**
 
-插件启动时只会清理残留的 `mlx_audio.server` 进程。如果目标端口被其他程序占用，请手动停止该程序，或修改 `port`/`proxyPort`：
+插件启动时只会清理残留的 `mlx_audio.server` 进程。如果目标端口被其他程序占用，请手动停止该程序，或修改 `port`：
 
 ```bash
-# 1) 先确认端口被谁占用
+# 1) 先确认对外端口被谁占用（单端口模式下内部 server 端口为 +1）
 /usr/sbin/lsof -nP -iTCP:19280 -sTCP:LISTEN
 
 # 2) 仅在确认是 mlx_audio.server 后，优先优雅终止

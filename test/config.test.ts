@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildInjectedParams, resolveConfig } from "../src/config.js";
+import { buildInjectedParams, resolveConfig, resolvePortBinding } from "../src/config.js";
 
 test("resolveConfig uses defaults when config is undefined", () => {
   const cfg = resolveConfig(undefined);
+  const ports = resolvePortBinding(cfg);
 
   assert.equal(cfg.port, 19280);
-  assert.equal(cfg.proxyPort, 19281);
+  assert.equal(cfg.proxyPort, undefined);
+  assert.equal(ports.publicPort, 19280);
+  assert.equal(ports.serverPort, 19281);
+  assert.equal(ports.mode, "single-port");
   assert.equal(cfg.model, "mlx-community/Kokoro-82M-bf16");
   assert.equal(cfg.pythonEnvMode, "managed");
   assert.equal(cfg.speed, 1.0);
@@ -25,9 +29,13 @@ test("resolveConfig applies user overrides", () => {
     topP: 0.8,
     workers: 2,
   });
+  const ports = resolvePortBinding(cfg);
 
-  assert.equal(cfg.port, 20000);
-  assert.equal(cfg.proxyPort, 20001);
+  assert.equal(cfg.port, 20000); // legacy server port
+  assert.equal(cfg.proxyPort, 20001); // legacy public endpoint
+  assert.equal(ports.publicPort, 20001);
+  assert.equal(ports.serverPort, 20000);
+  assert.equal(ports.mode, "legacy-dual-port");
   assert.equal(cfg.model, "mlx-community/Kokoro-82M-8bit");
   assert.equal(cfg.pythonEnvMode, "external");
   assert.equal(cfg.pythonExecutable, "/opt/homebrew/bin/python3.12");
@@ -49,7 +57,7 @@ test("resolveConfig reports validation errors for invalid fields", () => {
     (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.match(error.message, /port must be an integer between 1 and 65535/);
-      assert.match(error.message, /proxyPort must be an integer between 1 and 65535/);
+      assert.match(error.message, /proxyPort must be an integer between 1 and 65535 when provided/);
       assert.match(error.message, /port and proxyPort must be different/);
       assert.match(error.message, /pythonExecutable is required when pythonEnvMode is 'external'/);
       assert.match(error.message, /speed must be > 0/);
@@ -58,6 +66,15 @@ test("resolveConfig reports validation errors for invalid fields", () => {
       return true;
     },
   );
+});
+
+test("resolvePortBinding derives internal server port in single-port mode", () => {
+  const cfg = resolveConfig({ port: 31000 });
+  const ports = resolvePortBinding(cfg);
+
+  assert.equal(ports.publicPort, 31000);
+  assert.equal(ports.serverPort, 31001);
+  assert.equal(ports.mode, "single-port");
 });
 
 test("resolveConfig rejects invalid pythonEnvMode", () => {

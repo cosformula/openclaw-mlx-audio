@@ -23,8 +23,8 @@
 ```text
 OpenClaw (provider: openai)
   -> POST /v1/audio/speech
-  -> Plugin Proxy (127.0.0.1:19281)
-  -> mlx_audio.server (127.0.0.1:19280)
+  -> Plugin Proxy (127.0.0.1:port, default 19280)
+  -> mlx_audio.server (127.0.0.1:internal derived port, default 19281)
   -> mp3 stream response
 ```
 
@@ -50,6 +50,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 - `pythonEnvMode=external` 时，使用 `pythonExecutable` 指向的环境，启动前校验 Python 版本（3.11-3.13）与关键依赖可导入
 - `autoStart=true` 时后台预热所选 Python 运行时与 `mlx_audio.server`
 - `autoStart=false` 时在首个生成请求或 `GET /v1/models` 请求按需拉起 `mlx_audio.server`
+- 服务运行期间后台轮询配置并自动应用（约每 2 秒），也可通过 `reload` 立即应用
 - 启动链路要求上游 `/v1/models` 在约 10 秒内通过健康检查，否则该请求返回不可用并在下次请求重试
 - 启动链路跟踪阶段状态与模型缓存近似下载进度，状态可通过 tool/command 查询，并写入启动超时错误详情
 - 停止时关闭 proxy 与 `mlx_audio.server`
@@ -66,6 +67,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 `/mlx-tts` 支持：
 - `status`（含启动阶段与近似下载进度）
 - `test <text>`
+- `reload`（热更新插件配置，无需重启网关）
 
 ## 配置（实际字段）
 
@@ -77,7 +79,6 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
         "enabled": true,
         "config": {
           "port": 19280,
-          "proxyPort": 19281,
           "model": "mlx-community/Kokoro-82M-bf16",
           "pythonEnvMode": "managed",
           "pythonExecutable": "/opt/homebrew/bin/python3.12",
@@ -103,6 +104,8 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 ```
 
 说明：
+- 默认单端口模式：`port` 为对外 TTS 端口，`mlx_audio.server` 使用内部派生端口
+- `proxyPort` 为兼容旧配置字段，设置后按旧双端口语义运行（`port`=server，`proxyPort`=对外）
 - `pythonEnvMode` 默认为 `managed`
 - `pythonEnvMode=external` 时必须提供 `pythonExecutable`
 - `external` 模式只校验环境，不自动安装依赖
