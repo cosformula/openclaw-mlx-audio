@@ -21,23 +21,18 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 
 ## 模型
 
-mlx-audio 支持以下 TTS 模型，按内存占用升序排列：
+本插件默认使用 Kokoro-82M。以下是按使用场景筛选的模型列表：
 
-| 模型 | 磁盘 | 内存（1 worker） | 语言 |
-|---|---|---|---|
-| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI |
-| [Soprano-80M](https://huggingface.co/mlx-community/Soprano-1.1-80M-bf16) | ~300 MB | ~400 MB | EN |
-| [Spark-TTS-0.5B](https://huggingface.co/mlx-community/Spark-TTS-0.5B-bf16) | ~1 GB | ~1 GB | ZH, EN |
-| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO 等 |
-| [OuteTTS-0.6B](https://huggingface.co/mlx-community/OuteTTS-1.0-0.6B-fp16) | ~1.2 GB | ~1.4 GB | EN |
-| [CSM-1B](https://huggingface.co/mlx-community/csm-1b) | ~2 GB | ~2 GB | EN |
-| [Dia-1.6B](https://huggingface.co/mlx-community/Dia-1.6B-fp16) | ~3.2 GB | ~3.2 GB | EN |
-| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO 等 |
-| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 种语言 |
+| 模型 | 磁盘 | 内存（1 worker） | 语言 | 特点 |
+|---|---|---|---|---|
+| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI | 默认模型。体积小，多语言，8 GB Mac 可用 |
+| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO 等 | 中文合成质量高于 Kokoro。支持 3 秒参考音频声音克隆 |
+| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO 等 | 通过自然语言描述生成音色。需 16 GB 以上内存 |
+| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 种语言 | 语言覆盖面最广。需 16 GB 以上内存 |
 
-本插件默认使用 Qwen3-TTS-0.6B-Base，默认语言为中文。
+mlx-audio 还支持其他模型（Soprano、Spark-TTS、OuteTTS、CSM、Dia 等），完整列表见 [mlx-audio README](https://github.com/Blaizzy/mlx-audio)。
 
-### Qwen3-TTS 模型区别
+### Qwen3-TTS 模型变体
 
 Qwen3-TTS 有三个变体，功能不同：
 
@@ -51,12 +46,12 @@ Qwen3-TTS 有三个变体，功能不同：
 
 ### 选型参考
 
-根据可用内存选择模型：
+根据可用内存：
 
-- **8 GB**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止（SIGKILL）。
+- **8 GB**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
 - **16 GB 及以上**：所有模型均可运行。
 
-根据语言选择模型：
+根据语言：
 
 - **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
 - **英语**：Kokoro-82M 体积最小，延迟最低。
@@ -119,13 +114,21 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
     "entries": {
       "openclaw-mlx-audio": {
         "enabled": true,
-        "config": {
-          "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-          "langCode": "z",
-          "workers": 1
-        }
+        "config": {}
       }
     }
+  }
+}
+```
+
+默认配置使用 Kokoro-82M 模型，美式英语。如需中文，设置 `model` 和 `langCode`：
+
+```json
+{
+  "config": {
+    "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    "langCode": "z",
+    "workers": 1
   }
 }
 ```
@@ -155,7 +158,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 - 在端口 19280 启动 mlx-audio 服务
 - 在端口 19281 启动代理服务
 
-首次启动需下载模型（0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
+首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
 
 ## 配置项参考
 
@@ -163,12 +166,12 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 
 | 字段 | 默认值 | 说明 |
 |---|---|---|
-| `model` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16` | HuggingFace 模型 ID |
+| `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace 模型 ID |
 | `port` | `19280` | mlx-audio 服务端口 |
 | `proxyPort` | `19281` | 代理端口（OpenClaw 连接此端口） |
 | `workers` | `1` | Uvicorn worker 数 |
 | `speed` | `1.0` | 语速倍率 |
-| `langCode` | `z` | 语言代码 |
+| `langCode` | `a` | 语言代码 |
 | `voice` | 模型默认值 | 音色名称 |
 | `refAudio` | | 参考音频路径（声音克隆，仅 Base 模型） |
 | `refText` | | 参考音频对应文字 |
@@ -218,7 +221,7 @@ kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
 
 **首次启动耗时较长**
 
-模型正在下载。0.6B-Base 约 2.3 GB，1.7B 约 4.2 GB。
+模型正在下载。Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB。
 
 ## License
 

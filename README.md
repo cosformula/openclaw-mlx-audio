@@ -21,21 +21,16 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 
 ## Models
 
-TTS models supported by mlx-audio, sorted by memory usage:
+The default model is Kokoro-82M. The following models are selected for distinct use cases:
 
-| Model | Disk | RAM (1 worker) | Languages |
-|---|---|---|---|
-| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI |
-| [Soprano-80M](https://huggingface.co/mlx-community/Soprano-1.1-80M-bf16) | ~300 MB | ~400 MB | EN |
-| [Spark-TTS-0.5B](https://huggingface.co/mlx-community/Spark-TTS-0.5B-bf16) | ~1 GB | ~1 GB | ZH, EN |
-| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO, and more |
-| [OuteTTS-0.6B](https://huggingface.co/mlx-community/OuteTTS-1.0-0.6B-fp16) | ~1.2 GB | ~1.4 GB | EN |
-| [CSM-1B](https://huggingface.co/mlx-community/csm-1b) | ~2 GB | ~2 GB | EN |
-| [Dia-1.6B](https://huggingface.co/mlx-community/Dia-1.6B-fp16) | ~3.2 GB | ~3.2 GB | EN |
-| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO, and more |
-| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 languages |
+| Model | Disk | RAM (1 worker) | Languages | Use case |
+|---|---|---|---|---|
+| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI | Default. Smallest footprint, multilingual, runs on 8 GB Macs |
+| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO, and more | Higher Chinese quality than Kokoro. Supports voice cloning from 3-second reference audio |
+| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO, and more | Generates voices from natural language descriptions. Requires 16 GB or more |
+| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 languages | Widest language coverage. Requires 16 GB or more |
 
-The default model is Qwen3-TTS-0.6B-Base with Chinese as the default language.
+mlx-audio supports additional models (Soprano, Spark-TTS, OuteTTS, CSM, Dia, etc.). See the [mlx-audio README](https://github.com/Blaizzy/mlx-audio) for the full list.
 
 ### Qwen3-TTS Model Variants
 
@@ -53,7 +48,7 @@ Currently, mlx-community offers MLX-converted versions of 0.6B-Base and 1.7B-Voi
 
 By available memory:
 
-- **8 GB**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory (SIGKILL).
+- **8 GB**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
 - **16 GB and above**: All models listed above are viable.
 
 By language:
@@ -119,13 +114,21 @@ Set options in `plugins.entries.openclaw-mlx-audio.config` within `openclaw.json
     "entries": {
       "openclaw-mlx-audio": {
         "enabled": true,
-        "config": {
-          "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-          "langCode": "z",
-          "workers": 1
-        }
+        "config": {}
       }
     }
+  }
+}
+```
+
+The default configuration uses Kokoro-82M with American English. For Chinese, set `model` and `langCode`:
+
+```json
+{
+  "config": {
+    "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    "langCode": "z",
+    "workers": 1
   }
 }
 ```
@@ -155,7 +158,7 @@ On startup, the plugin will:
 - Start the mlx-audio server on port 19280
 - Start a proxy on port 19281
 
-On first launch, the model will be downloaded (0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
+On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
 
 ## Configuration Reference
 
@@ -163,12 +166,12 @@ All fields are optional:
 
 | Field | Default | Description |
 |---|---|---|
-| `model` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16` | HuggingFace model ID |
+| `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace model ID |
 | `port` | `19280` | mlx-audio server port |
 | `proxyPort` | `19281` | Proxy port (OpenClaw connects to this) |
 | `workers` | `1` | Uvicorn worker count |
 | `speed` | `1.0` | Speech speed multiplier |
-| `langCode` | `z` | Language code |
+| `langCode` | `a` | Language code |
 | `voice` | model default | Voice name |
 | `refAudio` | | Reference audio path (voice cloning, Base models only) |
 | `refText` | | Transcript of reference audio |
@@ -218,7 +221,7 @@ kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)
 
 **Slow first startup**
 
-The model is being downloaded. 0.6B-Base is ~2.3 GB, 1.7B is ~4.2 GB.
+The model is being downloaded. Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB.
 
 ## License
 
