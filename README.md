@@ -15,7 +15,7 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 
 ## Requirements
 
-- macOS, Apple Silicon (M1/M2/M3/M4)
+- macOS, Apple Silicon (M1 and later)
 - Python 3.11+ (the plugin manages its own venv)
 - OpenClaw
 

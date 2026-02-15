@@ -15,7 +15,7 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 
 ## 系统要求
 
-- macOS，Apple Silicon（M1/M2/M3/M4）
+- macOS，Apple Silicon（M1 及以后）
 - Python 3.11+（插件管理独立 venv，不影响系统环境）
 - OpenClaw
 
