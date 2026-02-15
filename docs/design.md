@@ -73,8 +73,8 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
         "config": {
           "port": 19280,
           "proxyPort": 19281,
-          "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-          "langCode": "z",
+          "model": "mlx-community/Kokoro-82M-bf16",
+          "langCode": "a",
           "speed": 1.0,
           "workers": 1,
           "temperature": 0.7,
@@ -94,8 +94,8 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 
 ## 默认模型选择
 
-默认模型为 `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16`，默认 `langCode` 为 `z`（中文）。
-原因：该组合在中英日场景更稳定，避免 Kokoro 在中文路径上的已知崩溃问题。
+默认模型为 `mlx-community/Kokoro-82M-bf16`，默认 `langCode` 为 `a`（美式英语）。
+原因：资源占用最小、冷启动更快，在 8 GB 设备上更稳。中文优先场景可切换到 Qwen3 并设置 `langCode: "z"`。
 
 ## 不在当前范围
 

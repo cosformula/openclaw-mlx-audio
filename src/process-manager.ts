@@ -1,6 +1,6 @@
 /** Manages the mlx_audio.server Python subprocess. */
 
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, execFileSync, execSync, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { freemem, totalmem } from "node:os";
@@ -168,16 +168,87 @@ export class ProcessManager extends EventEmitter {
       ).trim();
       if (!result) return;
       const pids = result.split("\n").map((p) => p.trim()).filter(Boolean);
-      if (pids.length > 0) {
-        this.logger.warn(`[mlx-audio] Killing stale process(es) on port ${this.cfg.port}: ${pids.join(", ")}`);
-        for (const pid of pids) {
-          try { process.kill(Number(pid), "SIGKILL"); } catch { /* already gone */ }
+      if (pids.length === 0) return;
+
+      const stalePids: number[] = [];
+      const foreignOwners: string[] = [];
+
+      for (const pidText of pids) {
+        const pid = Number(pidText);
+        if (!Number.isInteger(pid) || pid <= 0) continue;
+        const command = this.getProcessCommand(pid);
+        if (this.isMlxAudioProcess(command)) {
+          stalePids.push(pid);
+        } else {
+          foreignOwners.push(`${pid}${command ? ` (${command})` : ""}`);
         }
-        // Brief pause for port to be released
-        await new Promise((r) => setTimeout(r, 1000));
       }
+
+      if (foreignOwners.length > 0) {
+        throw new Error(
+          `[mlx-audio] Port ${this.cfg.port} is in use by non-mlx process(es): ${foreignOwners.join(", ")}. ` +
+          "Choose a different port or stop that process manually.",
+        );
+      }
+
+      if (stalePids.length > 0) {
+        this.logger.warn(`[mlx-audio] Stopping stale mlx-audio process(es) on port ${this.cfg.port}: ${stalePids.join(", ")}`);
+        for (const pid of stalePids) {
+          try {
+            process.kill(pid, "SIGTERM");
+          } catch {
+            // already gone
+          }
+        }
+
+        // Give graceful shutdown a chance before force-kill.
+        await new Promise((r) => setTimeout(r, 1000));
+        const stillAlive = stalePids.filter((pid) => this.isProcessAlive(pid));
+        if (stillAlive.length > 0) {
+          this.logger.warn(`[mlx-audio] Force killing unresponsive process(es): ${stillAlive.join(", ")}`);
+          for (const pid of stillAlive) {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch {
+              // already gone
+            }
+          }
+          await new Promise((r) => setTimeout(r, 300));
+        }
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith(`[mlx-audio] Port ${this.cfg.port} is in use by non-mlx process(es):`)) {
+        throw err;
+      }
+      this.logger.warn(
+        `[mlx-audio] Could not inspect existing port owner for ${this.cfg.port}. ` +
+        "If startup fails with address-in-use, stop the conflicting process manually.",
+      );
+    }
+  }
+
+  private getProcessCommand(pid: number): string {
+    try {
+      return execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+        encoding: "utf-8",
+        timeout: 5000,
+      }).trim();
     } catch {
-      // lsof not available or other issue — proceed anyway
+      return "";
+    }
+  }
+
+  private isMlxAudioProcess(command: string): boolean {
+    const lower = command.toLowerCase();
+    return lower.includes("mlx_audio.server");
+  }
+
+  private isProcessAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
     }
   }
 

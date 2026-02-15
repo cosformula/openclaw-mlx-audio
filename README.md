@@ -174,7 +174,6 @@ All fields are optional:
 | `workers` | `1` | Uvicorn worker count |
 | `speed` | `1.0` | Speech speed multiplier |
 | `langCode` | `a` | Language code |
-| `voice` | model default | Voice name |
 | `refAudio` | | Reference audio path (voice cloning, Base models only) |
 | `refText` | | Transcript of reference audio |
 | `instruct` | | Voice description text (VoiceDesign models only) |
@@ -215,7 +214,7 @@ Logs will show `⚠️ Server was killed by SIGKILL (likely out-of-memory)`. The
 
 **Port conflict**
 
-The plugin cleans up stale processes on the target port before starting. If the issue persists:
+The plugin only cleans up stale `mlx_audio.server` processes on the target port. If another app is using the configured port, stop it manually or change `port`/`proxyPort`:
 
 ```bash
 kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)

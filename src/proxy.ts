@@ -6,6 +6,10 @@ import { buildInjectedParams } from "./config.js";
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export class TtsProxy {
   private server: http.Server | null = null;
 
@@ -69,12 +73,23 @@ export class TtsProxy {
       if (tooLarge) return;
       const body = Buffer.concat(chunks).toString("utf8");
       try {
-        const parsed = JSON.parse(body);
+        const parsed: unknown = JSON.parse(body);
+        if (!isRecord(parsed)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Request body must be a JSON object" }));
+          return;
+        }
+        if (typeof parsed.input !== "string" || parsed.input.trim().length === 0) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Request body must include a non-empty string field: input" }));
+          return;
+        }
+
         const injected = buildInjectedParams(this.cfg);
         // Merge: original fields preserved, injected fields added/overridden
-        const merged = { ...parsed, ...injected };
+        const merged: Record<string, unknown> = { ...parsed, ...injected };
         // Keep original input text
-        if (parsed.input) merged.input = parsed.input;
+        merged.input = parsed.input;
 
         const upstreamBody = JSON.stringify(merged);
         this.forwardToUpstream(upstreamBody, res);

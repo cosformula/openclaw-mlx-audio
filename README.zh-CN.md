@@ -174,7 +174,6 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 | `workers` | `1` | Uvicorn worker 数 |
 | `speed` | `1.0` | 语速倍率 |
 | `langCode` | `a` | 语言代码 |
-| `voice` | 模型默认值 | 音色名称 |
 | `refAudio` | | 参考音频路径（声音克隆，仅 Base 模型） |
 | `refText` | | 参考音频对应文字 |
 | `instruct` | | 音色描述文本（仅 VoiceDesign 模型） |
@@ -215,7 +214,7 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 
 **端口占用**
 
-插件启动时自动清理目标端口上的残留进程。若仍存在冲突：
+插件启动时只会清理残留的 `mlx_audio.server` 进程。如果目标端口被其他程序占用，请手动停止该程序，或修改 `port`/`proxyPort`：
 
 ```bash
 kill -9 $(lsof -nP -iTCP:19280 -sTCP:LISTEN -t)

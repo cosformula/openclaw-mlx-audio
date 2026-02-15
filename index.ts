@@ -253,8 +253,22 @@ export default function register(api: PluginApi) {
                 }
                 const outputPath = params.outputPath as string | undefined;
                 const outFile = outputPath || `/tmp/mlx-audio-${Date.now()}.mp3`;
-                fs.writeFileSync(outFile, audio);
-                resolve({ content: [{ type: "text", text: JSON.stringify({ ok: true, path: outFile, bytes: audio.length }) }] });
+                try {
+                  const outDir = path.dirname(outFile);
+                  if (!fs.existsSync(outDir)) {
+                    fs.mkdirSync(outDir, { recursive: true });
+                  }
+                  fs.writeFileSync(outFile, audio);
+                  resolve({ content: [{ type: "text", text: JSON.stringify({ ok: true, path: outFile, bytes: audio.length }) }] });
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  resolve({
+                    content: [{
+                      type: "text",
+                      text: JSON.stringify({ error: `Failed to write audio file: ${msg}`, path: outFile }),
+                    }],
+                  });
+                }
               });
             },
           );

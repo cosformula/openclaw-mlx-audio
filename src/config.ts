@@ -93,6 +93,9 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
   const cfg = { ...DEFAULTS, ...raw };
   const errors: string[] = [];
 
+  if (!(typeof cfg.model === "string" && cfg.model.trim().length > 0)) {
+    errors.push("model must be a non-empty string");
+  }
   if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
     errors.push("port must be an integer between 1 and 65535");
   }
@@ -102,17 +105,32 @@ export function resolveConfig(raw: Partial<MlxAudioConfig> | undefined): MlxAudi
   if (cfg.port === cfg.proxyPort) {
     errors.push("port and proxyPort must be different");
   }
-  if (!(cfg.speed > 0)) {
+  if (!(Number.isFinite(cfg.speed) && cfg.speed > 0)) {
     errors.push("speed must be > 0");
   }
-  if (!(cfg.temperature >= 0)) {
+  if (!(typeof cfg.langCode === "string" && cfg.langCode.trim().length > 0)) {
+    errors.push("langCode must be a non-empty string");
+  }
+  if (!(Number.isFinite(cfg.temperature) && cfg.temperature >= 0)) {
     errors.push("temperature must be >= 0");
+  }
+  if (!(Number.isFinite(cfg.topP) && cfg.topP > 0 && cfg.topP <= 1)) {
+    errors.push("topP must be > 0 and <= 1");
+  }
+  if (!(Number.isInteger(cfg.topK) && cfg.topK > 0)) {
+    errors.push("topK must be an integer > 0");
+  }
+  if (!(Number.isFinite(cfg.repetitionPenalty) && cfg.repetitionPenalty > 0)) {
+    errors.push("repetitionPenalty must be > 0");
   }
   if (!(Number.isInteger(cfg.maxRestarts) && cfg.maxRestarts >= 0)) {
     errors.push("maxRestarts must be an integer >= 0");
   }
   if (!(Number.isInteger(cfg.healthCheckIntervalMs) && cfg.healthCheckIntervalMs >= 1000)) {
     errors.push("healthCheckIntervalMs must be an integer >= 1000");
+  }
+  if (!(Number.isInteger(cfg.workers) && cfg.workers >= 1)) {
+    errors.push("workers must be an integer >= 1");
   }
 
   if (errors.length > 0) {
