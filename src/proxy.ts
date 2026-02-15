@@ -128,6 +128,52 @@ export class TtsProxy {
     });
   }
 
+  private watchClientDisconnect(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    upstream: http.ClientRequest,
+    route: string,
+  ): () => boolean {
+    let disconnected = false;
+
+    const cancelUpstream = (reason: string): void => {
+      if (disconnected) return;
+      disconnected = true;
+      this.logger.info(`[mlx-audio] Client disconnected (${route}: ${reason}), canceling upstream request`);
+      upstream.destroy(new Error("Client disconnected"));
+    };
+
+    const onRequestAborted = (): void => {
+      cancelUpstream("request aborted");
+    };
+    const onRequestClose = (): void => {
+      if (!req.complete) {
+        cancelUpstream("request closed before completion");
+      }
+    };
+    const onResponseClose = (): void => {
+      if (!res.writableEnded) {
+        cancelUpstream("response closed before completion");
+      }
+    };
+
+    const cleanup = (): void => {
+      req.off("aborted", onRequestAborted);
+      req.off("close", onRequestClose);
+      res.off("close", onResponseClose);
+      res.off("finish", cleanup);
+      upstream.off("close", cleanup);
+    };
+
+    req.on("aborted", onRequestAborted);
+    req.on("close", onRequestClose);
+    res.on("close", onResponseClose);
+    res.once("finish", cleanup);
+    upstream.once("close", cleanup);
+
+    return () => disconnected;
+  }
+
   private forwardToUpstream(req: http.IncomingMessage, body: string, res: http.ServerResponse): void {
     const headers: http.OutgoingHttpHeaders = { ...req.headers };
     delete headers.host;
@@ -148,15 +194,18 @@ export class TtsProxy {
       res.writeHead(upstreamRes.statusCode ?? 500, upstreamRes.headers);
       upstreamRes.pipe(res);
     });
+    const wasDisconnected = this.watchClientDisconnect(req, res, upstream, "/v1/audio/speech");
 
     upstream.setTimeout(600_000, () => {
+      if (wasDisconnected()) return;
       this.logger.error("[mlx-audio] Upstream request timed out (600s)");
       upstream.destroy(new Error("Upstream timeout"));
     });
 
     upstream.on("error", (err) => {
+      if (wasDisconnected()) return;
       this.logger.error(`[mlx-audio] Upstream error: ${err.message}`);
-      if (!res.headersSent) {
+      if (!res.headersSent && !res.destroyed) {
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "mlx-audio server unavailable", detail: err.message }));
       }
@@ -179,14 +228,17 @@ export class TtsProxy {
       res.writeHead(upstreamRes.statusCode ?? 500, upstreamRes.headers);
       upstreamRes.pipe(res);
     });
+    const wasDisconnected = this.watchClientDisconnect(req, res, upstream, req.url ?? "raw");
 
     upstream.setTimeout(600_000, () => {
+      if (wasDisconnected()) return;
       this.logger.error("[mlx-audio] Upstream request timed out (600s)");
       upstream.destroy(new Error("Upstream timeout"));
     });
 
     upstream.on("error", (err) => {
-      if (!res.headersSent) {
+      if (wasDisconnected()) return;
+      if (!res.headersSent && !res.destroyed) {
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "mlx-audio server unavailable", detail: err.message }));
       }

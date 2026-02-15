@@ -390,3 +390,109 @@ test("TtsProxy returns 502 when upstream is unavailable", async () => {
     await proxy.stop();
   }
 });
+
+test("TtsProxy cancels upstream stream when downstream client disconnects", async () => {
+  let upstreamHits = 0;
+  let upstreamClosedEarly = false;
+  let resolveUpstreamClosed: (() => void) | null = null;
+  const upstreamClosed = new Promise<void>((resolve) => {
+    resolveUpstreamClosed = resolve;
+  });
+
+  const upstream = await createUpstream((req, res) => {
+    upstreamHits += 1;
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "audio/mpeg" });
+      const chunk = Buffer.alloc(1024, 1);
+      const interval = setInterval(() => {
+        if (!res.destroyed) {
+          res.write(chunk);
+        }
+      }, 20);
+      const forceEndTimer = setTimeout(() => {
+        clearInterval(interval);
+        if (!res.destroyed) {
+          res.end();
+        }
+      }, 5000);
+      res.on("close", () => {
+        clearInterval(interval);
+        clearTimeout(forceEndTimer);
+        if (!res.writableEnded) {
+          upstreamClosedEarly = true;
+        }
+        resolveUpstreamClosed?.();
+      });
+    });
+  });
+
+  const proxyPort = await getFreePort();
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig({ port: upstream.port, proxyPort });
+  const proxy = new TtsProxy(cfg, logger);
+
+  try {
+    await proxy.start();
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (err?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      };
+
+      const req = http.request(
+        {
+          hostname: "127.0.0.1",
+          port: proxyPort,
+          method: "POST",
+          path: "/v1/audio/speech",
+          headers: { "Content-Type": "application/json" },
+        },
+        (res) => {
+          res.on("close", () => finish());
+          res.on("error", (err) => {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code === "ECONNRESET") {
+              finish();
+              return;
+            }
+            finish(err);
+          });
+          res.destroy();
+        },
+      );
+
+      req.on("error", (err) => {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ECONNRESET") {
+          finish();
+          return;
+        }
+        finish(err);
+      });
+
+      req.write(JSON.stringify({ input: "disconnect test" }));
+      req.end();
+    });
+
+    await Promise.race([
+      upstreamClosed,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Upstream stream was not canceled after client disconnect")), 1500);
+      }),
+    ]);
+
+    assert.equal(upstreamHits, 1);
+    assert.equal(upstreamClosedEarly, true);
+  } finally {
+    await proxy.stop();
+    await closeServer(upstream.server);
+  }
+});

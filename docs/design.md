@@ -28,7 +28,7 @@ OpenClaw (provider: openai)
   -> mp3 stream response
 ```
 
-Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。
+Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。若下游客户端在响应完成前断开，proxy 会立即取消上游请求。
 
 ## 组件职责
 
@@ -57,7 +57,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 ### 2. Tool
 
 `mlx_audio_tts` 支持两个 action：
-- `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，并拒绝符号链接路径段，音频响应流式写盘并限制 64 MB）
+- `generate`：文本生成音频并返回文件路径（`outputPath` 仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，使用异步文件系统校验并拒绝符号链接路径段，音频响应流式写盘并限制 64 MB）
 - `status`：返回服务状态与关键配置
 
 ### 3. Command

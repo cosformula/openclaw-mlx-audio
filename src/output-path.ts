@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 
 export type OutputPathOptions = {
@@ -46,12 +46,14 @@ function selectAllowedRoot(targetPath: string, opts: OutputPathOptions): string 
   throw new Error(`outputPath must be under ${opts.tmpDir} or ${opts.outputDir}`);
 }
 
-function ensureSafeDirectoryTree(rootDir: string, parentDir: string): void {
-  if (!fs.existsSync(rootDir)) {
-    fs.mkdirSync(rootDir, { recursive: true });
-  }
+function isNotFoundError(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException)?.code === "ENOENT";
+}
 
-  const rootStat = fs.statSync(rootDir);
+async function ensureSafeDirectoryTree(rootDir: string, parentDir: string): Promise<void> {
+  await fs.mkdir(rootDir, { recursive: true });
+
+  const rootStat = await fs.stat(rootDir);
   if (!rootStat.isDirectory()) {
     throw new Error(`outputPath root is not a directory: ${rootDir}`);
   }
@@ -66,32 +68,41 @@ function ensureSafeDirectoryTree(rootDir: string, parentDir: string): void {
   let current = rootDir;
   for (const segment of segments) {
     current = path.join(current, segment);
-    if (fs.existsSync(current)) {
-      const st = fs.lstatSync(current);
-      if (st.isSymbolicLink()) {
-        throw new Error(`outputPath contains a symbolic link segment: ${current}`);
-      }
-      if (!st.isDirectory()) {
-        throw new Error(`outputPath parent includes a non-directory segment: ${current}`);
-      }
+    try {
+      await fs.mkdir(current);
       continue;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== "EEXIST") {
+        throw err;
+      }
     }
-    fs.mkdirSync(current);
+
+    const st = await fs.lstat(current);
+    if (st.isSymbolicLink()) {
+      throw new Error(`outputPath contains a symbolic link segment: ${current}`);
+    }
+    if (!st.isDirectory()) {
+      throw new Error(`outputPath parent includes a non-directory segment: ${current}`);
+    }
   }
 }
 
-function assertRealPathWithinRoot(rootDir: string, parentDir: string): void {
-  const rootRealPath = fs.realpathSync(rootDir);
-  const parentRealPath = fs.realpathSync(parentDir);
+async function assertRealPathWithinRoot(rootDir: string, parentDir: string): Promise<void> {
+  const rootRealPath = await fs.realpath(rootDir);
+  const parentRealPath = await fs.realpath(parentDir);
   if (!isPathWithin(rootRealPath, parentRealPath)) {
     throw new Error("outputPath resolves outside the allowed root via symbolic links");
   }
 }
 
-function assertTargetIsSafe(targetPath: string): void {
-  if (!fs.existsSync(targetPath)) return;
-
-  const targetStat = fs.lstatSync(targetPath);
+async function assertTargetIsSafe(targetPath: string): Promise<void> {
+  let targetStat;
+  try {
+    targetStat = await fs.lstat(targetPath);
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) return;
+    throw err;
+  }
   if (targetStat.isSymbolicLink()) {
     throw new Error(`outputPath cannot be a symbolic link: ${targetPath}`);
   }
@@ -100,20 +111,24 @@ function assertTargetIsSafe(targetPath: string): void {
   }
 }
 
-export function resolveSecureOutputPath(outputPath: string | undefined, opts: OutputPathOptions): string {
+export async function resolveSecureOutputPath(outputPath: string | undefined, opts: OutputPathOptions): Promise<string> {
   const targetPath = resolveOutputPath(outputPath, opts);
   const allowedRoot = selectAllowedRoot(targetPath, opts);
   const parentDir = path.dirname(targetPath);
 
-  ensureSafeDirectoryTree(allowedRoot, parentDir);
-  assertRealPathWithinRoot(allowedRoot, parentDir);
-  assertTargetIsSafe(targetPath);
+  await ensureSafeDirectoryTree(allowedRoot, parentDir);
+  await assertRealPathWithinRoot(allowedRoot, parentDir);
+  await assertTargetIsSafe(targetPath);
 
   return targetPath;
 }
 
-export function writeOutputFileSecure(payload: Buffer, outputPath: string | undefined, opts: OutputPathOptions): { path: string; bytes: number } {
-  const targetPath = resolveSecureOutputPath(outputPath, opts);
-  fs.writeFileSync(targetPath, payload);
+export async function writeOutputFileSecure(
+  payload: Buffer,
+  outputPath: string | undefined,
+  opts: OutputPathOptions,
+): Promise<{ path: string; bytes: number }> {
+  const targetPath = await resolveSecureOutputPath(outputPath, opts);
+  await fs.writeFile(targetPath, payload);
   return { path: targetPath, bytes: payload.length };
 }

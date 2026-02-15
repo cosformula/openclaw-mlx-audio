@@ -29,11 +29,11 @@ function createSandbox(): Sandbox {
   };
 }
 
-test("writeOutputFileSecure writes relative paths under outputDir", () => {
+test("writeOutputFileSecure writes relative paths under outputDir", async () => {
   const sandbox = createSandbox();
   try {
     const payload = Buffer.from("audio");
-    const result = writeOutputFileSecure(payload, "nested/result.mp3", sandbox.opts);
+    const result = await writeOutputFileSecure(payload, "nested/result.mp3", sandbox.opts);
 
     assert.equal(result.path, path.join(sandbox.opts.outputDir, "nested", "result.mp3"));
     assert.equal(result.bytes, payload.length);
@@ -43,11 +43,11 @@ test("writeOutputFileSecure writes relative paths under outputDir", () => {
   }
 });
 
-test("writeOutputFileSecure keeps default output inside tmpDir", () => {
+test("writeOutputFileSecure keeps default output inside tmpDir", async () => {
   const sandbox = createSandbox();
   try {
     const payload = Buffer.from("audio");
-    const result = writeOutputFileSecure(payload, undefined, { ...sandbox.opts, now: () => 123 });
+    const result = await writeOutputFileSecure(payload, undefined, { ...sandbox.opts, now: () => 123 });
 
     assert.equal(result.path, path.join(sandbox.opts.tmpDir, "mlx-audio-123.mp3"));
     assert.equal(fs.readFileSync(result.path, "utf8"), "audio");
@@ -56,13 +56,13 @@ test("writeOutputFileSecure keeps default output inside tmpDir", () => {
   }
 });
 
-test("writeOutputFileSecure rejects absolute paths outside allowed roots", () => {
+test("writeOutputFileSecure rejects absolute paths outside allowed roots", async () => {
   const sandbox = createSandbox();
   try {
     const payload = Buffer.from("audio");
     const outsidePath = path.join(sandbox.rootDir, "outside", "escape.mp3");
 
-    assert.throws(
+    await assert.rejects(
       () => writeOutputFileSecure(payload, outsidePath, sandbox.opts),
       /outputPath must be under/,
     );
@@ -71,7 +71,7 @@ test("writeOutputFileSecure rejects absolute paths outside allowed roots", () =>
   }
 });
 
-test("writeOutputFileSecure rejects symlink directories in output path", () => {
+test("writeOutputFileSecure rejects symlink directories in output path", async () => {
   const sandbox = createSandbox();
   try {
     const payload = Buffer.from("audio");
@@ -81,7 +81,7 @@ test("writeOutputFileSecure rejects symlink directories in output path", () => {
     const linkPath = path.join(sandbox.opts.outputDir, "linked");
     fs.symlinkSync(outsideDir, linkPath);
 
-    assert.throws(
+    await assert.rejects(
       () => writeOutputFileSecure(payload, path.join("linked", "escape.mp3"), sandbox.opts),
       /symbolic link segment/,
     );
@@ -90,7 +90,7 @@ test("writeOutputFileSecure rejects symlink directories in output path", () => {
   }
 });
 
-test("writeOutputFileSecure rejects symlink target files", () => {
+test("writeOutputFileSecure rejects symlink target files", async () => {
   const sandbox = createSandbox();
   try {
     const payload = Buffer.from("audio");
@@ -102,7 +102,7 @@ test("writeOutputFileSecure rejects symlink target files", () => {
     const linkTarget = path.join(sandbox.opts.outputDir, "linked-file.mp3");
     fs.symlinkSync(outsideFile, linkTarget);
 
-    assert.throws(
+    await assert.rejects(
       () => writeOutputFileSecure(payload, linkTarget, sandbox.opts),
       /cannot be a symbolic link/,
     );

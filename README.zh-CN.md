@@ -198,6 +198,7 @@ OpenClaw tts() → 代理 (:19281) → mlx_audio.server (:19280) → Apple Silic
 OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需要的额外参数（完整模型 ID、语言代码等）不在 OpenAI API 规范中。
 
 代理拦截请求，注入配置参数后转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
+如果下游客户端在响应完成前断开，代理会立即取消上游请求。
 
 插件同时管理服务生命周期：
 - `managed` 模式下，自举本地 `uv` 工具链，并维护 `~/.openclaw/mlx-audio/` 下的 Python 虚拟环境
@@ -206,7 +207,7 @@ OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需�
 - 崩溃自动重启（健康运行 30 秒后重置计数）
 - 启动前清理端口上的残留进程
 - 启动前检查可用内存，识别 OOM kill
-- 限制 tool 输出路径仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，并校验 realpath、拒绝符号链接路径段
+- 限制 tool 输出路径仅允许 `/tmp` 或 `~/.openclaw/mlx-audio/outputs`，使用异步文件系统检查校验 realpath，并拒绝符号链接路径段
 - 生成音频采用流式写盘，并拒绝超过 64 MB 的响应，避免内存峰值增长
 
 ## 故障排查

@@ -497,42 +497,43 @@ export default function register(api: PluginApi) {
             return;
           }
 
-          const outputOptions = {
-            tmpDir,
-            systemTmpDir,
-            outputDir,
-            homeDir,
-          };
-          let targetPath = "";
-          try {
-            targetPath = resolveSecureOutputPath(outputPath, outputOptions);
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            res.resume();
-            finish({ ok: false, error: `Failed to write audio file: ${msg}` });
-            return;
-          }
-
-          let bytes = 0;
-          const sizeGuard = new Transform({
-            transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
-              bytes += chunk.length;
-              if (bytes > MAX_AUDIO_RESPONSE_BYTES) {
-                callback(new Error(`Audio payload exceeds ${MAX_AUDIO_RESPONSE_BYTES} bytes`));
-                return;
-              }
-              callback(null, chunk);
-            },
-          });
-          const writer = fs.createWriteStream(targetPath, { flags: "w" });
           void (async () => {
+            const outputOptions = {
+              tmpDir,
+              systemTmpDir,
+              outputDir,
+              homeDir,
+            };
+            let targetPath = "";
+            try {
+              targetPath = await resolveSecureOutputPath(outputPath, outputOptions);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              res.resume();
+              finish({ ok: false, error: `Failed to write audio file: ${msg}` });
+              return;
+            }
+
+            let bytes = 0;
+            const sizeGuard = new Transform({
+              transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
+                bytes += chunk.length;
+                if (bytes > MAX_AUDIO_RESPONSE_BYTES) {
+                  callback(new Error(`Audio payload exceeds ${MAX_AUDIO_RESPONSE_BYTES} bytes`));
+                  return;
+                }
+                callback(null, chunk);
+              },
+            });
+            const writer = fs.createWriteStream(targetPath, { flags: "w" });
+
             try {
               await pipeline(res, sizeGuard, writer);
               finish({ ok: true, path: targetPath, bytes });
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : String(err);
               try {
-                fs.unlinkSync(targetPath);
+                await fs.promises.unlink(targetPath);
               } catch {
                 // ignore cleanup failures
               }

@@ -56,5 +56,7 @@ Returns server status, loaded model, uptime, and config.
 - `pythonEnvMode: external` uses `pythonExecutable` directly after validating Python 3.11-3.13 and required modules.
 - First generation may be slower due to model warmup.
 - The server runs as a background subprocess and auto-restarts on crash.
+- Proxy requests are canceled upstream when the downstream client disconnects before completion.
 - Generated audio is streamed to disk, and payloads larger than 64 MB are rejected to avoid memory spikes.
+- Output path safety checks use async filesystem operations and still reject symbolic-link path segments.
 - Config is set in `openclaw.json` under `plugins.entries.openclaw-mlx-audio.config`. Model, language, voice, or Python runtime mode changes require a gateway restart.

@@ -198,6 +198,7 @@ OpenClaw tts() → proxy (:19281) → mlx_audio.server (:19280) → Apple Silico
 OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional parameters required by mlx-audio (full model ID, language code, etc.) are not part of the OpenAI API specification.
 
 The proxy intercepts requests, injects configured parameters, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
+If the downstream client disconnects before completion, the proxy cancels the upstream request immediately.
 
 The plugin also manages the server lifecycle:
 - In `managed` mode, bootstraps a local `uv` toolchain and maintains a Python virtual environment under `~/.openclaw/mlx-audio/`
@@ -206,7 +207,7 @@ The plugin also manages the server lifecycle:
 - Auto-restarts on crash (counter resets after 30s of healthy uptime)
 - Cleans up stale processes on the target port before starting
 - Checks available memory before starting; detects OOM kills
-- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`, verifies real paths, and rejects symbolic-link segments
+- Restricts tool output paths to `/tmp` or `~/.openclaw/mlx-audio/outputs`, verifies real paths with async filesystem checks, and rejects symbolic-link segments
 - Streams generated audio directly to disk and rejects payloads larger than 64 MB to prevent memory spikes
 
 ## Troubleshooting
