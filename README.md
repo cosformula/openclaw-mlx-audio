@@ -20,75 +20,6 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 - Optional `pythonEnvMode: external` uses your existing Python environment via `pythonExecutable`
 - OpenClaw
 
-## Models
-
-The default model is Kokoro-82M. The following models are selected for distinct use cases:
-
-| Model | Description | Languages | Repo |
-|---|---|---|---|
-| **Kokoro** | Fast, multilingual TTS with 54 voice presets | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
-| **Qwen3-TTS Base** | Alibaba's multilingual TTS with 3-second voice cloning | ZH, EN, JA, KO, and more | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
-| **Qwen3-TTS VoiceDesign** | Generates voices from natural language descriptions | ZH, EN, JA, KO, and more | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
-| **Chatterbox** | Expressive multilingual TTS | EN, ES, FR, DE, IT, PT, and 10 more | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
-
-mlx-audio supports additional models (Soprano, Spark-TTS, OuteTTS, CSM, Dia, etc.). See the [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models) for the full list.
-
-### Qwen3-TTS Model Variants
-
-| Variant | Description |
-|---|---|
-| **Base** | Foundation model. Supports voice cloning from 3-second reference audio. Can be fine-tuned. |
-| **VoiceDesign** | Generates voices from natural language descriptions (e.g. "a deep male voice with a British accent"). Does not accept reference audio. |
-| **CustomVoice** | Provides 9 preset voices with instruction-based style control. |
-
-Currently, mlx-community offers MLX-converted versions of 0.6B-Base and 1.7B-VoiceDesign.
-
-### Selection Guide
-
-Memory usage reference:
-
-| Model | Disk | RAM (1 worker) |
-|---|---|---|
-| Kokoro-82M | 345 MB | ~400 MB |
-| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
-| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
-| Chatterbox | ~3 GB | ~3.5 GB |
-
-- **8 GB Mac**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
-- **16 GB and above**: All models listed above are viable.
-- **Chinese**: Qwen3-TTS series. Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
-- **English**: Kokoro-82M has the smallest footprint and lowest latency.
-- **Multilingual**: Chatterbox covers 16 languages.
-
-### Language Codes
-
-For Kokoro and Qwen3-TTS:
-
-| Code | Language |
-|---|---|
-| `a` | American English |
-| `b` | British English |
-| `z` | Chinese |
-| `j` | Japanese |
-| `e` | Spanish |
-| `f` | French |
-
-### Voices
-
-Kokoro includes 50+ preset voices:
-
-| Category | Examples |
-|---|---|
-| American female | `af_heart`, `af_bella`, `af_nova`, `af_sky` |
-| American male | `am_adam`, `am_echo` |
-| Chinese female | `zf_xiaobei` |
-| Chinese male | `zm_yunxi` |
-| Japanese | `jf_alpha`, `jm_kumo` |
-
-Qwen3-TTS Base clones voices from reference audio (`refAudio`). VoiceDesign generates voices from natural language descriptions (`instruct`).
-
-When not specified, models use their default voice.
-
 ## Installation and Configuration
 
 ### 1. Install the Plugin
@@ -165,6 +96,75 @@ On startup, the plugin will:
 - If `pythonEnvMode: external`, validate `pythonExecutable` (Python 3.11-3.13, required modules importable) and use it directly
 
 On first launch, the model will be downloaded (Kokoro-82M is ~345 MB, Qwen3-TTS-0.6B-Base is ~2.3 GB). There is currently no download progress UI; status can be checked via OpenClaw logs or `ls -la ~/.cache/huggingface/`. No network connection is needed after the initial download.
+
+## Models
+
+The default model is Kokoro-82M. The following models are selected for distinct use cases:
+
+| Model | Description | Languages | Repo |
+|---|---|---|---|
+| **Kokoro** | Fast, multilingual TTS with 54 voice presets | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
+| **Qwen3-TTS Base** | Alibaba's multilingual TTS with 3-second voice cloning | ZH, EN, JA, KO, and more | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
+| **Qwen3-TTS VoiceDesign** | Generates voices from natural language descriptions | ZH, EN, JA, KO, and more | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
+| **Chatterbox** | Expressive multilingual TTS | EN, ES, FR, DE, IT, PT, and 10 more | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
+
+mlx-audio supports additional models (Soprano, Spark-TTS, OuteTTS, CSM, Dia, etc.). See the [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models) for the full list.
+
+### Qwen3-TTS Model Variants
+
+| Variant | Description |
+|---|---|
+| **Base** | Foundation model. Supports voice cloning from 3-second reference audio. Can be fine-tuned. |
+| **VoiceDesign** | Generates voices from natural language descriptions (e.g. "a deep male voice with a British accent"). Does not accept reference audio. |
+| **CustomVoice** | Provides 9 preset voices with instruction-based style control. |
+
+Currently, mlx-community offers MLX-converted versions of 0.6B-Base and 1.7B-VoiceDesign.
+
+### Selection Guide
+
+Memory usage reference:
+
+| Model | Disk | RAM (1 worker) |
+|---|---|---|
+| Kokoro-82M | 345 MB | ~400 MB |
+| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
+| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
+| Chatterbox | ~3 GB | ~3.5 GB |
+
+- **8 GB Mac**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
+- **16 GB and above**: All models listed above are viable.
+- **Chinese**: Qwen3-TTS series. Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
+- **English**: Kokoro-82M has the smallest footprint and lowest latency.
+- **Multilingual**: Chatterbox covers 16 languages.
+
+### Language Codes
+
+For Kokoro and Qwen3-TTS:
+
+| Code | Language |
+|---|---|
+| `a` | American English |
+| `b` | British English |
+| `z` | Chinese |
+| `j` | Japanese |
+| `e` | Spanish |
+| `f` | French |
+
+### Voices
+
+Kokoro includes 50+ preset voices:
+
+| Category | Examples |
+|---|---|
+| American female | `af_heart`, `af_bella`, `af_nova`, `af_sky` |
+| American male | `am_adam`, `am_echo` |
+| Chinese female | `zf_xiaobei` |
+| Chinese male | `zm_yunxi` |
+| Japanese | `jf_alpha`, `jm_kumo` |
+
+Qwen3-TTS Base clones voices from reference audio (`refAudio`). VoiceDesign generates voices from natural language descriptions (`instruct`).
+
+When not specified, models use their default voice.
 
 ## Configuration Reference
 

@@ -20,75 +20,6 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 - 可选 `pythonEnvMode: external`，通过 `pythonExecutable` 复用已有 Python 环境
 - OpenClaw
 
-## 模型
-
-默认模型为 Kokoro-82M。以下是按使用场景筛选的模型：
-
-| 模型 | 说明 | 语言 | 链接 |
-|---|---|---|---|
-| **Kokoro** | 轻量多语言 TTS，54 种预设音色 | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
-| **Qwen3-TTS Base** | 阿里巴巴多语言 TTS，支持 3 秒参考音频声音克隆 | ZH, EN, JA, KO 等 | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
-| **Qwen3-TTS VoiceDesign** | 通过自然语言描述生成音色 | ZH, EN, JA, KO 等 | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
-| **Chatterbox** | 表现力丰富的多语言 TTS | EN, ES, FR, DE, IT, PT 等 16 种语言 | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
-
-mlx-audio 还支持 Soprano、Spark-TTS、OuteTTS、CSM、Dia 等模型，完整列表见 [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models)。
-
-### Qwen3-TTS 模型变体
-
-| 变体 | 说明 |
-|---|---|
-| **Base** | 基础模型，支持通过 3 秒参考音频进行声音克隆，可用于微调 |
-| **VoiceDesign** | 根据自然语言描述生成音色（如"低沉的男声，带英式口音"），不接受参考音频 |
-| **CustomVoice** | 提供 9 种预设音色，支持通过指令控制语气和风格 |
-
-目前 mlx-community 提供了 0.6B-Base 和 1.7B-VoiceDesign 的 MLX 转换版本。
-
-### 选型参考
-
-内存占用参考：
-
-| 模型 | 磁盘 | 内存（1 worker） |
-|---|---|---|
-| Kokoro-82M | 345 MB | ~400 MB |
-| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
-| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
-| Chatterbox | ~3 GB | ~3.5 GB |
-
-- **8 GB Mac**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
-- **16 GB 及以上**：所有模型均可运行。
-- **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
-- **英语**：Kokoro-82M 体积最小，延迟最低。
-- **多语言**：Chatterbox 覆盖 16 种语言。
-
-### 语言代码
-
-Kokoro 和 Qwen3-TTS 使用以下语言代码：
-
-| 代码 | 语言 |
-|---|---|
-| `a` | 美式英语 |
-| `b` | 英式英语 |
-| `z` | 中文 |
-| `j` | 日语 |
-| `e` | 西班牙语 |
-| `f` | 法语 |
-
-### 音色
-
-Kokoro 内置 50+ 预设音色：
-
-| 类别 | 示例 |
-|---|---|
-| 美式女声 | `af_heart`, `af_bella`, `af_nova`, `af_sky` |
-| 美式男声 | `am_adam`, `am_echo` |
-| 中文女声 | `zf_xiaobei` |
-| 中文男声 | `zm_yunxi` |
-| 日语 | `jf_alpha`, `jm_kumo` |
-
-Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通过自然语言描述（`instruct`）生成音色。
-
-未指定时使用模型默认音色。
-
 ## 安装与配置
 
 ### 1. 安装插件
@@ -165,6 +96,75 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 - 若 `pythonEnvMode: external`，启动前校验 `pythonExecutable`（Python 3.11-3.13 且可导入关键依赖）并直接使用该环境
 
 首次启动需下载模型（Kokoro-82M 约 345 MB，Qwen3-TTS-0.6B-Base 约 2.3 GB）。当前无下载进度提示，可通过 OpenClaw 日志或 `ls -la ~/.cache/huggingface/` 确认状态。模型下载完成后不再需要网络连接。
+
+## 模型
+
+默认模型为 Kokoro-82M。以下是按使用场景筛选的模型：
+
+| 模型 | 说明 | 语言 | 链接 |
+|---|---|---|---|
+| **Kokoro** | 轻量多语言 TTS，54 种预设音色 | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
+| **Qwen3-TTS Base** | 阿里巴巴多语言 TTS，支持 3 秒参考音频声音克隆 | ZH, EN, JA, KO 等 | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
+| **Qwen3-TTS VoiceDesign** | 通过自然语言描述生成音色 | ZH, EN, JA, KO 等 | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
+| **Chatterbox** | 表现力丰富的多语言 TTS | EN, ES, FR, DE, IT, PT 等 16 种语言 | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
+
+mlx-audio 还支持 Soprano、Spark-TTS、OuteTTS、CSM、Dia 等模型，完整列表见 [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models)。
+
+### Qwen3-TTS 模型变体
+
+| 变体 | 说明 |
+|---|---|
+| **Base** | 基础模型，支持通过 3 秒参考音频进行声音克隆，可用于微调 |
+| **VoiceDesign** | 根据自然语言描述生成音色（如"低沉的男声，带英式口音"），不接受参考音频 |
+| **CustomVoice** | 提供 9 种预设音色，支持通过指令控制语气和风格 |
+
+目前 mlx-community 提供了 0.6B-Base 和 1.7B-VoiceDesign 的 MLX 转换版本。
+
+### 选型参考
+
+内存占用参考：
+
+| 模型 | 磁盘 | 内存（1 worker） |
+|---|---|---|
+| Kokoro-82M | 345 MB | ~400 MB |
+| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
+| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
+| Chatterbox | ~3 GB | ~3.5 GB |
+
+- **8 GB Mac**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
+- **16 GB 及以上**：所有模型均可运行。
+- **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
+- **英语**：Kokoro-82M 体积最小，延迟最低。
+- **多语言**：Chatterbox 覆盖 16 种语言。
+
+### 语言代码
+
+Kokoro 和 Qwen3-TTS 使用以下语言代码：
+
+| 代码 | 语言 |
+|---|---|
+| `a` | 美式英语 |
+| `b` | 英式英语 |
+| `z` | 中文 |
+| `j` | 日语 |
+| `e` | 西班牙语 |
+| `f` | 法语 |
+
+### 音色
+
+Kokoro 内置 50+ 预设音色：
+
+| 类别 | 示例 |
+|---|---|
+| 美式女声 | `af_heart`, `af_bella`, `af_nova`, `af_sky` |
+| 美式男声 | `am_adam`, `am_echo` |
+| 中文女声 | `zf_xiaobei` |
+| 中文男声 | `zm_yunxi` |
+| 日语 | `jf_alpha`, `jm_kumo` |
+
+Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通过自然语言描述（`instruct`）生成音色。
+
+未指定时使用模型默认音色。
 
 ## 配置项参考
 
