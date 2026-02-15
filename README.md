@@ -1,5 +1,7 @@
 # openclaw-mlx-audio
 
+[中文文档](./README.zh-CN.md)
+
 **The missing local TTS for OpenClaw on Apple Silicon.**
 
 OpenClaw supports ElevenLabs, OpenAI, and Edge TTS out of the box — all cloud-based. Existing self-hosted alternatives ([openedai-speech](https://github.com/matatonic/openedai-speech), [Chatterbox-TTS-Server](https://github.com/devnen/Chatterbox-TTS-Server)) require NVIDIA GPUs. If you're on a Mac, you're stuck paying per request or sending voice data to someone else's server.
