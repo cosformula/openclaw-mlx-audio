@@ -23,18 +23,16 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 
 The default model is Kokoro-82M. The following models are selected for distinct use cases:
 
-| Model | Disk | RAM (1 worker) | Languages | Use case |
-|---|---|---|---|---|
-| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI | Default. Smallest footprint, multilingual, runs on 8 GB Macs |
-| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO, and more | Higher Chinese quality than Kokoro. Supports voice cloning from 3-second reference audio |
-| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO, and more | Generates voices from natural language descriptions. Requires 16 GB or more |
-| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 languages | Widest language coverage. Requires 16 GB or more |
+| Model | Description | Languages | Repo |
+|---|---|---|---|
+| **Kokoro** | Fast, multilingual TTS with 54 voice presets | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
+| **Qwen3-TTS Base** | Alibaba's multilingual TTS with 3-second voice cloning | ZH, EN, JA, KO, and more | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
+| **Qwen3-TTS VoiceDesign** | Generates voices from natural language descriptions | ZH, EN, JA, KO, and more | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
+| **Chatterbox** | Expressive multilingual TTS | EN, ES, FR, DE, IT, PT, and 10 more | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
 
-mlx-audio supports additional models (Soprano, Spark-TTS, OuteTTS, CSM, Dia, etc.). See the [mlx-audio README](https://github.com/Blaizzy/mlx-audio) for the full list.
+mlx-audio supports additional models (Soprano, Spark-TTS, OuteTTS, CSM, Dia, etc.). See the [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models) for the full list.
 
 ### Qwen3-TTS Model Variants
-
-Qwen3-TTS comes in three variants with different capabilities:
 
 | Variant | Description |
 |---|---|
@@ -46,16 +44,20 @@ Currently, mlx-community offers MLX-converted versions of 0.6B-Base and 1.7B-Voi
 
 ### Selection Guide
 
-By available memory:
+Memory usage reference:
 
-- **8 GB**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
+| Model | Disk | RAM (1 worker) |
+|---|---|---|
+| Kokoro-82M | 345 MB | ~400 MB |
+| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
+| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
+| Chatterbox | ~3 GB | ~3.5 GB |
+
+- **8 GB Mac**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
 - **16 GB and above**: All models listed above are viable.
-
-By language:
-
 - **Chinese**: Qwen3-TTS series. Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
 - **English**: Kokoro-82M has the smallest footprint and lowest latency.
-- **Multilingual**: Chatterbox covers 16 languages at ~3.5 GB memory.
+- **Multilingual**: Chatterbox covers 16 languages.
 
 ### Language Codes
 

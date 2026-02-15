@@ -21,20 +21,18 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 
 ## 模型
 
-本插件默认使用 Kokoro-82M。以下是按使用场景筛选的模型列表：
+默认模型为 Kokoro-82M。以下是按使用场景筛选的模型：
 
-| 模型 | 磁盘 | 内存（1 worker） | 语言 | 特点 |
-|---|---|---|---|---|
-| [Kokoro-82M](https://huggingface.co/mlx-community/Kokoro-82M-bf16) | 345 MB | ~400 MB | EN, JA, ZH, FR, ES, IT, PT, HI | 默认模型。体积小，多语言，8 GB Mac 可用 |
-| [Qwen3-TTS-0.6B-Base](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) | 2.3 GB | ~1.4 GB | ZH, EN, JA, KO 等 | 中文合成质量高于 Kokoro。支持 3 秒参考音频声音克隆 |
-| [Qwen3-TTS-1.7B-VoiceDesign](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) | 4.2 GB | ~3.8 GB | ZH, EN, JA, KO 等 | 通过自然语言描述生成音色。需 16 GB 以上内存 |
-| [Chatterbox](https://huggingface.co/mlx-community/chatterbox-fp16) | ~3 GB | ~3.5 GB | 16 种语言 | 语言覆盖面最广。需 16 GB 以上内存 |
+| 模型 | 说明 | 语言 | 链接 |
+|---|---|---|---|
+| **Kokoro** | 轻量多语言 TTS，54 种预设音色 | EN, JA, ZH, FR, ES, IT, PT, HI | [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16) |
+| **Qwen3-TTS Base** | 阿里巴巴多语言 TTS，支持 3 秒参考音频声音克隆 | ZH, EN, JA, KO 等 | [0.6B-Base-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16) |
+| **Qwen3-TTS VoiceDesign** | 通过自然语言描述生成音色 | ZH, EN, JA, KO 等 | [1.7B-VoiceDesign-bf16](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16) |
+| **Chatterbox** | 表现力丰富的多语言 TTS | EN, ES, FR, DE, IT, PT 等 16 种语言 | [chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16) |
 
-mlx-audio 还支持其他模型（Soprano、Spark-TTS、OuteTTS、CSM、Dia 等），完整列表见 [mlx-audio README](https://github.com/Blaizzy/mlx-audio)。
+mlx-audio 还支持 Soprano、Spark-TTS、OuteTTS、CSM、Dia 等模型，完整列表见 [mlx-audio README](https://github.com/Blaizzy/mlx-audio#supported-models)。
 
 ### Qwen3-TTS 模型变体
-
-Qwen3-TTS 有三个变体，功能不同：
 
 | 变体 | 说明 |
 |---|---|
@@ -46,16 +44,20 @@ Qwen3-TTS 有三个变体，功能不同：
 
 ### 选型参考
 
-根据可用内存：
+内存占用参考：
 
-- **8 GB**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
+| 模型 | 磁盘 | 内存（1 worker） |
+|---|---|---|
+| Kokoro-82M | 345 MB | ~400 MB |
+| Qwen3-TTS-0.6B-Base | 2.3 GB | ~1.4 GB |
+| Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
+| Chatterbox | ~3 GB | ~3.5 GB |
+
+- **8 GB Mac**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
 - **16 GB 及以上**：所有模型均可运行。
-
-根据语言：
-
 - **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
 - **英语**：Kokoro-82M 体积最小，延迟最低。
-- **多语言**：Chatterbox 覆盖 16 种语言，内存占用约 3.5 GB。
+- **多语言**：Chatterbox 覆盖 16 种语言。
 
 ### 语言代码
 
@@ -121,7 +123,7 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 }
 ```
 
-默认配置使用 Kokoro-82M 模型，美式英语。如需中文，设置 `model` 和 `langCode`：
+默认配置使用 Kokoro-82M，美式英语。如需中文，设置 `model` 和 `langCode`：
 
 ```json
 {
