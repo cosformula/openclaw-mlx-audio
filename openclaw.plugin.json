@@ -1,5 +1,5 @@
 {
-  "id": "mlx-audio",
+  "id": "openclaw-mlx-audio",
   "name": "mlx-audio",
   "displayName": "MLX Audio (Local TTS)",
   "description": "Local TTS on Apple Silicon via mlx-audio. Zero API key, zero cloud.",
