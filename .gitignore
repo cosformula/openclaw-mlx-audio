@@ -1,4 +1,33 @@
+# Dependencies
 node_modules/
+
+# Build artifacts
 dist/
+*.tsbuildinfo
+
+# Runtime/test artifacts
 test-proxy.mjs
 *.mp3
+*.wav
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Coverage and caches
+coverage/
+.cache/
+.eslintcache
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
