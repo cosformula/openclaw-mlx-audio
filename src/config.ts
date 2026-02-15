@@ -73,7 +73,7 @@ const DEFAULTS: MlxAudioConfig = {
   proxyPort: 19281,
   model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
   speed: 1.0,
-  langCode: "a",
+  langCode: "z",
   temperature: 0.7,
   topP: 0.95,
   topK: 40,

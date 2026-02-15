@@ -47,7 +47,7 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
    {
      "plugins": {
        "entries": {
-         "mlx-audio": {
+         "openclaw-mlx-audio": {
            "enabled": true,
            "config": {
              "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
@@ -85,16 +85,16 @@ This plugin runs [mlx-audio](https://github.com/Blaizzy/mlx-audio) TTS locally o
 
 ## Configuration
 
-All fields are optional. Set in `plugins.entries.mlx-audio.config`:
+All fields are optional. Set in `plugins.entries.openclaw-mlx-audio.config`:
 
 | Field | Default | Description |
 |---|---|---|
-| `model` | `mlx-community/Kokoro-82M-bf16` | HuggingFace model ID |
+| `model` | `mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16` | HuggingFace model ID |
 | `port` | `19280` | mlx-audio server port |
 | `proxyPort` | `19281` | Proxy port (this is what OpenClaw connects to) |
 | `workers` | `1` | Uvicorn workers (use 1 on low-memory machines) |
 | `speed` | `1.0` | Speech speed multiplier |
-| `langCode` | `a` | Language: `a` (English), `z` (Chinese), `j` (Japanese) |
+| `langCode` | `z` | Language: `a` (English), `z` (Chinese), `j` (Japanese) |
 | `voice` | *(model default)* | Voice name (e.g. `af_heart` for Kokoro) |
 | `refAudio` | — | Path to reference audio for voice cloning (1.7B VoiceDesign only) |
 | `refText` | — | Transcript of reference audio |

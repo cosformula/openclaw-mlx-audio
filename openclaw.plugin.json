@@ -3,7 +3,7 @@
   "name": "mlx-audio",
   "displayName": "MLX Audio (Local TTS)",
   "description": "Local TTS on Apple Silicon via mlx-audio. Zero API key, zero cloud.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "skills": ["skills/mlx-audio"],
   "configSchema": {
     "type": "object",
@@ -11,9 +11,9 @@
     "properties": {
       "port": { "type": "number", "default": 19280, "description": "mlx_audio.server port" },
       "proxyPort": { "type": "number", "default": 19281, "description": "Proxy port" },
-      "model": { "type": "string", "default": "mlx-community/Kokoro-82M-bf16", "description": "HuggingFace model ID" },
+      "model": { "type": "string", "default": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16", "description": "HuggingFace model ID" },
       "speed": { "type": "number", "default": 1.0 },
-      "langCode": { "type": "string", "default": "a", "description": "Language code: a=English, z=Chinese, j=Japanese" },
+      "langCode": { "type": "string", "default": "z", "description": "Language code: a=English, z=Chinese, j=Japanese" },
       "refAudio": { "type": "string", "description": "Path to reference audio for voice clone" },
       "refText": { "type": "string", "description": "Transcript of reference audio" },
       "instruct": { "type": "string", "description": "Voice design instruction (Qwen3 VoiceDesign only)" },
@@ -31,7 +31,7 @@
   "uiHints": {
     "port": { "label": "Server Port" },
     "proxyPort": { "label": "Proxy Port" },
-    "model": { "label": "Model", "placeholder": "mlx-community/Kokoro-82M-bf16" },
+    "model": { "label": "Model", "placeholder": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16" },
     "refAudio": { "label": "Reference Audio Path" },
     "refText": { "label": "Reference Audio Text" }
   }

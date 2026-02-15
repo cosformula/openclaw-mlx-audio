@@ -14,6 +14,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 interface PluginApi {
   logger: {
@@ -26,6 +27,8 @@ interface PluginApi {
       entries?: Record<string, { enabled?: boolean; config?: Record<string, unknown> }>;
     };
   };
+  getPluginConfig?: (pluginId?: string) => unknown;
+  getConfig?: (pluginId?: string) => unknown;
   registerService: (svc: { id: string; start: () => Promise<void> | void; stop: () => Promise<void> | void }) => void;
   registerTool: (tool: {
     name: string;
@@ -43,6 +46,73 @@ interface PluginApi {
 
 const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
 const STARTUP_HEALTH_INTERVAL_MS = 500;
+const DEFAULT_PLUGIN_ID = "openclaw-mlx-audio";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function loadPluginId(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 5; i++) {
+    const manifestPath = path.resolve(dir, "openclaw.plugin.json");
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
+        if (typeof manifest.id === "string" && manifest.id.length > 0) {
+          return manifest.id;
+        }
+      } catch {
+        return DEFAULT_PLUGIN_ID;
+      }
+      return DEFAULT_PLUGIN_ID;
+    }
+    dir = path.resolve(dir, "..");
+  }
+  return DEFAULT_PLUGIN_ID;
+}
+
+const PLUGIN_ID = loadPluginId();
+
+function extractPluginConfig(value: unknown, pluginId: string): Partial<MlxAudioConfig> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  if (isRecord(value.plugins) && isRecord(value.plugins.entries)) {
+    const entry = value.plugins.entries[pluginId];
+    if (isRecord(entry) && isRecord(entry.config)) {
+      return entry.config as Partial<MlxAudioConfig>;
+    }
+  }
+
+  if (isRecord(value.entries)) {
+    const entry = value.entries[pluginId];
+    if (isRecord(entry) && isRecord(entry.config)) {
+      return entry.config as Partial<MlxAudioConfig>;
+    }
+  }
+
+  if (isRecord(value.config)) {
+    return value.config as Partial<MlxAudioConfig>;
+  }
+
+  return value as Partial<MlxAudioConfig>;
+}
+
+function readRawConfig(api: PluginApi, pluginId: string): Partial<MlxAudioConfig> | undefined {
+  const accessorCandidates: unknown[] = [
+    api.getPluginConfig?.(pluginId),
+    api.getPluginConfig?.(),
+    api.getConfig?.(pluginId),
+    api.getConfig?.(),
+  ];
+
+  for (const candidate of accessorCandidates) {
+    const config = extractPluginConfig(candidate, pluginId);
+    if (config) return config;
+  }
+
+  return api.config.plugins?.entries?.[pluginId]?.config as Partial<MlxAudioConfig> | undefined;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,7 +143,7 @@ async function waitForServerHealthy(port: number): Promise<boolean> {
 }
 
 export default function register(api: PluginApi) {
-  const rawConfig = api.config.plugins?.entries?.["openclaw-mlx-audio"]?.config as Partial<MlxAudioConfig> | undefined;
+  const rawConfig = readRawConfig(api, PLUGIN_ID);
   const cfg = resolveConfig(rawConfig);
   const logger = api.logger;
 
