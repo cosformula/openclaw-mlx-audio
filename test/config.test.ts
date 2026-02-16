@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildInjectedParams, resolveConfig, resolvePortBinding } from "../src/config.js";
+import { buildInjectedParams, detectLangCode, resolveConfig, resolvePortBinding } from "../src/config.js";
 
 test("resolveConfig uses defaults when config is undefined", () => {
   const cfg = resolveConfig(undefined);
@@ -14,7 +14,7 @@ test("resolveConfig uses defaults when config is undefined", () => {
   assert.equal(cfg.model, "mlx-community/Kokoro-82M-bf16");
   assert.equal(cfg.pythonEnvMode, "managed");
   assert.equal(cfg.speed, 1.0);
-  assert.equal(cfg.langCode, "a");
+  assert.equal(cfg.langCode, "auto");
   assert.equal(cfg.workers, 1);
 });
 
@@ -93,12 +93,13 @@ test("buildInjectedParams includes optional fields when provided", () => {
     refAudio: "/tmp/ref.wav",
     refText: "reference text",
     instruct: "calm style",
+    langCode: "z",
   });
 
   const params = buildInjectedParams(cfg);
 
   assert.equal(params.model, cfg.model);
-  assert.equal(params.lang_code, cfg.langCode);
+  assert.equal(params.lang_code, "z");
   assert.equal(params.response_format, "mp3");
   assert.equal(params.ref_audio, "/tmp/ref.wav");
   assert.equal(params.ref_text, "reference text");
@@ -112,4 +113,47 @@ test("buildInjectedParams skips optional fields when absent", () => {
   assert.equal(Object.hasOwn(params, "ref_audio"), false);
   assert.equal(Object.hasOwn(params, "ref_text"), false);
   assert.equal(Object.hasOwn(params, "instruct"), false);
+});
+
+test("detectLangCode returns 'a' for English text", () => {
+  assert.equal(detectLangCode("Hello, how are you?"), "a");
+  assert.equal(detectLangCode("The quick brown fox"), "a");
+});
+
+test("detectLangCode returns 'z' for Chinese text", () => {
+  assert.equal(detectLangCode("你好世界"), "z");
+  assert.equal(detectLangCode("今天天气不错"), "z");
+});
+
+test("detectLangCode returns 'j' for Japanese text", () => {
+  assert.equal(detectLangCode("こんにちは世界"), "j");
+  assert.equal(detectLangCode("おはようございます"), "j");
+});
+
+test("detectLangCode returns 'z' for Chinese with some English", () => {
+  assert.equal(detectLangCode("这个API的性能很好"), "z");
+});
+
+test("detectLangCode returns 'a' for mostly English with few Chinese chars", () => {
+  assert.equal(detectLangCode("This is a long English sentence with the word 你 in it somewhere"), "a");
+});
+
+test("buildInjectedParams auto-detects language from text", () => {
+  const cfg = resolveConfig(undefined); // langCode defaults to "auto"
+  assert.equal(cfg.langCode, "auto");
+
+  const enParams = buildInjectedParams(cfg, "Hello world");
+  assert.equal(enParams.lang_code, "a");
+
+  const zhParams = buildInjectedParams(cfg, "你好世界");
+  assert.equal(zhParams.lang_code, "z");
+
+  const jaParams = buildInjectedParams(cfg, "こんにちは世界");
+  assert.equal(jaParams.lang_code, "j");
+});
+
+test("buildInjectedParams uses explicit langCode when not auto", () => {
+  const cfg = resolveConfig({ langCode: "z" });
+  const params = buildInjectedParams(cfg, "Hello world");
+  assert.equal(params.lang_code, "z"); // explicit override, not auto-detected
 });

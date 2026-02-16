@@ -223,7 +223,7 @@ test("TtsProxy waits for ensureUpstreamReady on /v1/audio/speech", async () => {
       input: "hello from ensure",
       model: cfg.model,
       speed: cfg.speed,
-      lang_code: cfg.langCode,
+      lang_code: "a", // "auto" detects English from input text
       temperature: cfg.temperature,
       top_p: cfg.topP,
       top_k: cfg.topK,

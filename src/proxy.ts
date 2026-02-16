@@ -116,7 +116,8 @@ export class TtsProxy {
           return;
         }
 
-        const injected = buildInjectedParams(this.cfg);
+        const inputText = typeof parsed.input === "string" ? parsed.input : "";
+        const injected = buildInjectedParams(this.cfg, inputText);
         // Merge: original fields preserved, injected fields added/overridden
         const merged: Record<string, unknown> = { ...parsed, ...injected };
         // Keep original input text

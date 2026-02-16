@@ -523,7 +523,7 @@ export default function register(api: PluginApi) {
         settled = true;
         resolve(result);
       };
-      const body = JSON.stringify({ ...buildInjectedParams(cfg), input: text });
+      const body = JSON.stringify({ ...buildInjectedParams(cfg, text), input: text });
       const req = http.request(
         {
           hostname: "127.0.0.1",

@@ -83,7 +83,7 @@ const DEFAULTS: MlxAudioConfig = {
   model: "mlx-community/Kokoro-82M-bf16",
   pythonEnvMode: "managed",
   speed: 1.0,
-  langCode: "a",
+  langCode: "auto",
   temperature: 0.7,
   topP: 0.95,
   topK: 40,
@@ -188,14 +188,31 @@ export function resolvePortBinding(cfg: MlxAudioConfig): PortBinding {
   };
 }
 
+// ---------- language detection ----------------------------------------------
+
+/**
+ * Detect language code from text content.
+ * Returns Kokoro lang_code: "a" (English), "z" (Chinese), "j" (Japanese).
+ */
+export function detectLangCode(text: string): string {
+  const stripped = text.replace(/\s/g, "");
+  const total = stripped.length || 1;
+  const cjk = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) ?? []).length;
+  const kana = (text.match(/[\u3040-\u309f\u30a0-\u30ff]/g) ?? []).length;
+  if (kana / total > 0.1) return "j";
+  if (cjk / total > 0.1) return "z";
+  return "a";
+}
+
 // ---------- upstream params builder ----------------------------------------
 
 /** Build the extra body fields to inject into the upstream request. */
-export function buildInjectedParams(cfg: MlxAudioConfig): Record<string, unknown> {
+export function buildInjectedParams(cfg: MlxAudioConfig, text?: string): Record<string, unknown> {
+  const langCode = cfg.langCode === "auto" && text ? detectLangCode(text) : cfg.langCode;
   const params: Record<string, unknown> = {
     model: cfg.model,
     speed: cfg.speed,
-    lang_code: cfg.langCode,
+    lang_code: langCode,
     temperature: cfg.temperature,
     top_p: cfg.topP,
     top_k: cfg.topK,

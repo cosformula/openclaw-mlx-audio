@@ -23,7 +23,7 @@
         "description": "Python executable for external mode (for example, /opt/homebrew/bin/python3.12)"
       },
       "speed": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
-      "langCode": { "type": "string", "minLength": 1, "default": "a", "description": "Language code: a=English, z=Chinese, j=Japanese" },
+      "langCode": { "type": "string", "minLength": 1, "default": "auto", "description": "Language code: auto (detect from text), a=English, z=Chinese, j=Japanese" },
       "refAudio": { "type": "string", "description": "Path to reference audio for voice clone" },
       "refText": { "type": "string", "description": "Transcript of reference audio" },
       "instruct": { "type": "string", "description": "Voice design instruction (Qwen3 VoiceDesign only)" },
