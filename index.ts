@@ -71,7 +71,7 @@ const EXTERNAL_PYTHON_REQUIRED_MODULES = [
   "webrtcvad",
   "misaki",
   "num2words",
-  "phonemizer",
+  "phonemizer",  // phonemizer-fork provides the same 'phonemizer' module
   "spacy",
   "en_core_web_sm",
 ];
@@ -244,7 +244,7 @@ async function validateExternalPython(pythonExecutable: string, logger: Logger):
   if (missingModules.length > 0) {
     const installCmd =
       `${pythonExecutable} -m pip install mlx-audio uvicorn fastapi python-multipart ` +
-      `'setuptools<81' webrtcvad misaki num2words phonemizer "spacy>=3.8,<3.9" "${SPACY_MODEL_WHEEL_URL}"`;
+      `'setuptools<81' webrtcvad 'misaki[en]' num2words phonemizer-fork "spacy>=3.8,<3.9" "${SPACY_MODEL_WHEEL_URL}"`;
     throw new Error(
       `[mlx-audio] External python is missing required modules: ${missingModules.join(", ")}. ` +
       `Install dependencies in that environment, for example:\n${installCmd}`,

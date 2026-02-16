@@ -117,7 +117,6 @@ export class VenvManager {
       "--python",
       PYTHON_VERSION,
       "--no-dev",
-      "--no-install-project",
       "--no-sync",
       "--",
       "python",
