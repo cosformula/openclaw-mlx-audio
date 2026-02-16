@@ -5,7 +5,7 @@
  * Zero API key, zero cloud dependency.
  */
 
-import { resolveConfig, resolvePortBinding, type MlxAudioConfig } from "./src/config.js";
+import { resolveConfig, resolvePortBinding, buildInjectedParams, type MlxAudioConfig } from "./src/config.js";
 import { ProcessManager } from "./src/process-manager.js";
 import { TtsProxy } from "./src/proxy.js";
 import { HealthChecker } from "./src/health.js";
@@ -523,7 +523,7 @@ export default function register(api: PluginApi) {
         settled = true;
         resolve(result);
       };
-      const body = JSON.stringify({ model: cfg.model, input: text, voice: "default" });
+      const body = JSON.stringify({ ...buildInjectedParams(cfg), input: text });
       const req = http.request(
         {
           hostname: "127.0.0.1",
