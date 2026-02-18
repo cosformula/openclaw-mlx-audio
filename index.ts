@@ -51,6 +51,7 @@ interface PluginApi {
     acceptsArgs?: boolean;
     handler: (ctx: { args?: string }) => { text: string } | Promise<{ text: string }>;
   }) => void;
+  on?: (hookName: string, handler: (...args: unknown[]) => unknown, opts?: { priority?: number }) => void;
 }
 
 const STARTUP_HEALTH_MAX_ATTEMPTS = 20;
@@ -778,4 +779,36 @@ export default function register(api: PluginApi) {
       return { text: `Unknown subcommand: ${subCmd}. Use: status, test, reload` };
     },
   });
+
+  // ── Setup hint ──
+  // On the first agent turn after startup, if TTS is not routed to this plugin,
+  // inject a context hint so the agent can notify the user.
+
+  if (api.on) {
+    let setupHintEmitted = false;
+
+    api.on("before_agent_start", () => {
+      if (setupHintEmitted) return;
+      if (!serviceRunning) return;
+
+      const ttsBaseUrl = process.env.OPENAI_TTS_BASE_URL || "";
+      const expectedPort = portBinding.publicPort;
+      const isConfigured = ttsBaseUrl.includes(`:${expectedPort}/`);
+
+      if (isConfigured) return;
+
+      setupHintEmitted = true;
+      return {
+        prependContext:
+          `[mlx-audio plugin] Local TTS plugin is installed and running on port ${expectedPort}, ` +
+          `but OpenClaw TTS is not routed to it. ` +
+          `Notify the user and offer to finish setup by applying this gateway config patch:\n` +
+          `{\n` +
+          `  "env": { "vars": { "OPENAI_TTS_BASE_URL": "http://127.0.0.1:${expectedPort}/v1" } },\n` +
+          `  "messages": { "tts": { "provider": "openai", "openai": { "apiKey": "local" } } }\n` +
+          `}\n` +
+          `After patching, restart the gateway for changes to take effect.`,
+      };
+    });
+  }
 }
