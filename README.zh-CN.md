@@ -20,7 +20,19 @@ OpenClaw 本地语音合成插件，基于 [mlx-audio](https://github.com/Blaizz
 - 可选 `pythonEnvMode: external`，通过 `pythonExecutable` 复用已有 Python 环境
 - OpenClaw
 
-## 安装与配置
+## 快速开始
+
+告诉你的 OpenClaw：
+
+> 安装 @cosformula/openclaw-mlx-audio 插件，把 TTS 切到本地，重启生效。
+
+OpenClaw 会自动完成插件安装、配置修改和重启。
+
+如需中文 TTS（Qwen3-TTS）：
+
+> 安装 @cosformula/openclaw-mlx-audio 插件，把 TTS 切到本地，用 Qwen3-TTS-0.6B，重启生效。
+
+## 手动安装
 
 ### 1. 安装插件
 

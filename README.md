@@ -20,7 +20,19 @@ Intel Macs, Windows, and Linux are not supported. Alternatives for those platfor
 - Optional `pythonEnvMode: external` uses your existing Python environment via `pythonExecutable`
 - OpenClaw
 
-## Installation and Configuration
+## Quick Start
+
+Tell your OpenClaw:
+
+> Install the @cosformula/openclaw-mlx-audio plugin, configure local TTS, and restart.
+
+OpenClaw will handle plugin installation, config changes, and restart automatically.
+
+For Chinese TTS with Qwen3-TTS:
+
+> Install the @cosformula/openclaw-mlx-audio plugin, configure local TTS with Qwen3-TTS-0.6B, and restart.
+
+## Manual Installation
 
 ### 1. Install the Plugin
 
