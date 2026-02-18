@@ -197,8 +197,53 @@ export class TtsProxy {
     };
 
     const upstream = http.request(options, (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode ?? 500, upstreamRes.headers);
-      upstreamRes.pipe(res);
+      const statusCode = upstreamRes.statusCode ?? 500;
+
+      // For non-success responses, forward immediately (error bodies are small).
+      if (statusCode >= 300) {
+        res.writeHead(statusCode, upstreamRes.headers);
+        upstreamRes.pipe(res);
+        return;
+      }
+
+      // For success responses with chunked transfer-encoding, defer writeHead
+      // until the first data chunk arrives. If the upstream closes without
+      // sending any data (e.g. model not loaded, generator crash), return 502
+      // instead of an empty 200 that produces a 0-byte file downstream.
+      let headersSent = false;
+
+      upstreamRes.on("data", (chunk: Buffer) => {
+        if (!headersSent) {
+          headersSent = true;
+          res.writeHead(statusCode, upstreamRes.headers);
+        }
+        res.write(chunk);
+      });
+
+      upstreamRes.on("end", () => {
+        if (!headersSent) {
+          // Upstream returned 200 but sent zero bytes of audio data.
+          this.logger.error("[mlx-audio] Upstream returned 200 but sent no audio data (empty chunked response)");
+          if (!res.destroyed) {
+            res.writeHead(502, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              error: "mlx-audio server returned empty response",
+              detail: "The server acknowledged the request but produced no audio data. This usually means the model failed to generate output. Check server logs.",
+            }));
+          }
+          return;
+        }
+        res.end();
+      });
+
+      upstreamRes.on("error", (err) => {
+        if (!headersSent && !res.destroyed) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Upstream stream error", detail: err.message }));
+        } else if (!res.destroyed) {
+          res.destroy(err);
+        }
+      });
     });
     const wasDisconnected = this.watchClientDisconnect(req, res, upstream, "/v1/audio/speech");
 
