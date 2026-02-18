@@ -3,7 +3,7 @@
   "name": "mlx-audio",
   "displayName": "MLX Audio (Local TTS)",
   "description": "Local TTS on Apple Silicon via mlx-audio. Zero API key, zero cloud.",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "skills": [
     "skills/mlx-audio"
   ],
