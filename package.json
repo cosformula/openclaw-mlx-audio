@@ -9,6 +9,7 @@
     "check-schema": "node scripts/check-schema-sync.mjs",
     "build": "tsc && npm run check-schema",
     "test": "npm run build && node --test dist/test/*.test.js",
+    "version": "node scripts/sync-manifest-version.mjs && git add openclaw.plugin.json",
     "prepublishOnly": "npm run build"
   },
   "files": [
