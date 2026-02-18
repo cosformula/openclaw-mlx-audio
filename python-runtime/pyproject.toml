@@ -3,7 +3,7 @@ name = "openclaw-mlx-audio-runtime"
 version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
-  "mlx-audio",
+  "mlx-audio>=0.3.0",
   "uvicorn",
   "fastapi",
   "python-multipart",
