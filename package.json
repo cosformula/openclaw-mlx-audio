@@ -1,6 +1,6 @@
 {
   "name": "@cosformula/openclaw-mlx-audio",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "OpenClaw local TTS plugin powered by mlx-audio — zero API key, zero cloud dependency",
   "type": "module",
   "main": "./dist/index.js",
