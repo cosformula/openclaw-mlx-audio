@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -103,6 +104,38 @@ test("VenvManager run wraps command errors with command context", async () => {
 
   try {
     await assert.rejects(managerAny.run("uv", ["pip", "install"]), /Command failed: uv pip install[\s\S]*boom/);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("VenvManager assertSha256 accepts matching digest", () => {
+  const dataDir = createTempDataDir();
+  const manager = new VenvManager(dataDir, createLogger());
+  const managerAny = manager as any;
+
+  try {
+    const payload = Buffer.from("checksum-ok");
+    const digest = createHash("sha256").update(payload).digest("hex");
+    managerAny.assertSha256(payload, digest, "fixture.tar.gz");
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("VenvManager ensureUv rejects download when checksum validation fails", async () => {
+  const dataDir = createTempDataDir();
+  const manager = new VenvManager(dataDir, createLogger());
+  const managerAny = manager as any;
+
+  managerAny.getUvTarget = () => "aarch64-apple-darwin";
+  managerAny.downloadUvArchive = async () => Buffer.from("tampered-archive");
+  managerAny.run = async () => {
+    throw new Error("tar extraction should not execute on checksum mismatch");
+  };
+
+  try {
+    await assert.rejects(managerAny.ensureUv(), /Checksum mismatch/);
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

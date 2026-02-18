@@ -12,18 +12,24 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "./run-command.js";
 
 const PYTHON_VERSION = "3.12";
-const UV_RELEASE_BASE_URL = "https://github.com/astral-sh/uv/releases/latest/download";
+const UV_VERSION = "0.10.4";
+const UV_RELEASE_BASE_URL = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}`;
 const UV_DOWNLOAD_TIMEOUT_MS = 60_000;
 const UV_DOWNLOAD_MAX_ATTEMPTS = 3;
 const UV_DOWNLOAD_RETRY_BASE_DELAY_MS = 1_500;
 const RUNTIME_TEMPLATE_DIR = "python-runtime";
 const RUNTIME_PROJECT_DIR = "runtime";
 const RUNTIME_FILES = ["pyproject.toml", "uv.lock"] as const;
+const UV_ARCHIVE_SHA256: Record<string, string> = {
+  "aarch64-apple-darwin": "a6852e4dc565c8fedcf5adcdf09fca7caf5347739bed512bd95b15dada36db51",
+  "x86_64-apple-darwin": "df6dd1c3ebeab4369a098c516c15c233c62bf789a40a4864b30dad1d38d7604e",
+};
 
 export interface ManagedRuntime {
   pythonBin: string;
@@ -176,14 +182,19 @@ export class VenvManager {
 
     const target = this.getUvTarget();
     const url = `${UV_RELEASE_BASE_URL}/uv-${target}.tar.gz`;
+    const expectedSha256 = UV_ARCHIVE_SHA256[target];
+    if (!expectedSha256) {
+      throw new Error(`[mlx-audio/venv] Unsupported uv target for checksum validation: ${target}`);
+    }
     const tempDir = mkdtempSync(join(this.dataDir, "uv-download-"));
     const archivePath = join(tempDir, "uv.tar.gz");
     const extractDir = join(tempDir, "extract");
 
-    this.logger.info("[mlx-audio/venv] Downloading uv...");
+    this.logger.info(`[mlx-audio/venv] Downloading uv ${UV_VERSION}...`);
 
     try {
       const archive = await this.downloadUvArchive(url);
+      this.assertSha256(archive, expectedSha256, `uv-${target}.tar.gz`);
       writeFileSync(archivePath, archive);
       mkdirSync(extractDir, { recursive: true });
       await this.run("/usr/bin/tar", ["-xzf", archivePath, "-C", extractDir]);
@@ -241,6 +252,15 @@ export class VenvManager {
     }
 
     throw lastErr ?? new Error("uv download failed");
+  }
+
+  private assertSha256(content: Buffer, expectedSha256: string, artifactName: string): void {
+    const actualSha256 = createHash("sha256").update(content).digest("hex");
+    if (actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(
+        `Checksum mismatch for ${artifactName}: expected ${expectedSha256.toLowerCase()}, got ${actualSha256.toLowerCase()}`,
+      );
+    }
   }
 
   private async run(cmd: string, args: string[]): Promise<void> {

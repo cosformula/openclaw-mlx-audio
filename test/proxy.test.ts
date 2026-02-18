@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import http from "node:http";
 import net from "node:net";
 import test from "node:test";
@@ -495,4 +496,50 @@ test("TtsProxy cancels upstream stream when downstream client disconnects", asyn
     await proxy.stop();
     await closeServer(upstream.server);
   }
+});
+
+test("TtsProxy watchClientDisconnect handles client request stream errors", () => {
+  const { logger } = createLoggerStore();
+  const cfg = resolveConfig({});
+  const proxy = new TtsProxy(cfg, logger);
+
+  const req = new EventEmitter() as unknown as http.IncomingMessage & EventEmitter & { complete: boolean };
+  const res = new EventEmitter() as unknown as http.ServerResponse & EventEmitter;
+  const upstream = new EventEmitter() as unknown as http.ClientRequest & EventEmitter;
+
+  let statusCode = 0;
+  let responseBody = "";
+  req.complete = false;
+  (res as unknown as { headersSent: boolean }).headersSent = false;
+  (res as unknown as { destroyed: boolean }).destroyed = false;
+  (res as unknown as { writableEnded: boolean }).writableEnded = false;
+  (res as unknown as { writeHead: (code: number) => http.ServerResponse }).writeHead = (code: number) => {
+    statusCode = code;
+    (res as unknown as { headersSent: boolean }).headersSent = true;
+    return res;
+  };
+  (res as unknown as { end: (body?: string) => http.ServerResponse }).end = (body?: string) => {
+    if (typeof body === "string") {
+      responseBody = body;
+    }
+    (res as unknown as { writableEnded: boolean }).writableEnded = true;
+    res.emit("finish");
+    return res;
+  };
+  (res as unknown as { destroy: (err?: Error) => http.ServerResponse }).destroy = () => {
+    (res as unknown as { destroyed: boolean }).destroyed = true;
+    return res;
+  };
+  (upstream as unknown as { destroy: (err?: Error) => http.ClientRequest }).destroy = () => {
+    upstream.emit("close");
+    return upstream;
+  };
+
+  const wasDisconnected = (proxy as any).watchClientDisconnect(req, res, upstream, "/v1/models") as () => boolean;
+  req.emit("error", new Error("broken stream"));
+
+  assert.equal(wasDisconnected(), true);
+  assert.equal(statusCode, 400);
+  assert.match(responseBody, /Client request stream error/);
+  assert.equal((res as unknown as { destroyed: boolean }).destroyed, false);
 });

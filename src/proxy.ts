@@ -92,6 +92,21 @@ export class TtsProxy {
     const chunks: Buffer[] = [];
     let bodySize = 0;
     let tooLarge = false;
+    let streamErrorHandled = false;
+    const handleSpeechRequestStreamError = (err: Error): void => {
+      if (streamErrorHandled) return;
+      streamErrorHandled = true;
+      this.logger.error(`[mlx-audio] Client request stream error (/v1/audio/speech): ${err.message}`);
+      if (!res.headersSent && !res.destroyed) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Client request stream error", detail: err.message }));
+        return;
+      }
+      if (!res.destroyed) {
+        res.destroy(err);
+      }
+    };
+    req.once("error", handleSpeechRequestStreamError);
 
     req.on("data", (chunk: Buffer) => {
       if (tooLarge) return;
@@ -135,6 +150,7 @@ export class TtsProxy {
         }
 
         const upstreamBody = JSON.stringify(merged);
+        req.off("error", handleSpeechRequestStreamError);
         this.forwardToUpstream(req, upstreamBody, res);
       } catch (err) {
         this.logger.error(`[mlx-audio] Proxy parse error: ${err}`);
@@ -167,6 +183,18 @@ export class TtsProxy {
         cancelUpstream("request closed before completion");
       }
     };
+    const onRequestError = (err: Error): void => {
+      this.logger.error(`[mlx-audio] Client request stream error (${route}): ${err.message}`);
+      cancelUpstream("request stream error");
+      if (!res.headersSent && !res.destroyed) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Client request stream error", detail: err.message }));
+      }
+    };
+    const onResponseError = (err: Error): void => {
+      this.logger.error(`[mlx-audio] Client response stream error (${route}): ${err.message}`);
+      cancelUpstream("response stream error");
+    };
     const onResponseClose = (): void => {
       if (!res.writableEnded) {
         cancelUpstream("response closed before completion");
@@ -176,6 +204,8 @@ export class TtsProxy {
     const cleanup = (): void => {
       req.off("aborted", onRequestAborted);
       req.off("close", onRequestClose);
+      req.off("error", onRequestError);
+      res.off("error", onResponseError);
       res.off("close", onResponseClose);
       res.off("finish", cleanup);
       upstream.off("close", cleanup);
@@ -183,6 +213,8 @@ export class TtsProxy {
 
     req.on("aborted", onRequestAborted);
     req.on("close", onRequestClose);
+    req.on("error", onRequestError);
+    res.on("error", onResponseError);
     res.on("close", onResponseClose);
     res.once("finish", cleanup);
     upstream.once("close", cleanup);
