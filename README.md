@@ -55,13 +55,12 @@ Set options in `plugins.entries.openclaw-mlx-audio.config` within `openclaw.json
 }
 ```
 
-The default configuration uses Kokoro-82M with American English. For Chinese, set `model` and `langCode`:
+The default configuration uses Kokoro-82M with `langCode: auto` (Kokoro language auto-detection). For Chinese with Qwen3-TTS, set `model`:
 
 ```json
 {
   "config": {
     "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-    "langCode": "z",
     "workers": 1
   }
 }
@@ -134,15 +133,19 @@ Memory usage reference:
 | Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
 | Chatterbox | ~3 GB | ~3.5 GB |
 
+For Chatterbox, plan for about 3.5 GB RAM at runtime (1 worker).
+
 - **8 GB Mac**: Kokoro-82M or Qwen3-TTS-0.6B-Base with `workers: 1`. Models at 1.7B and above will be terminated by the OS due to insufficient memory.
 - **16 GB and above**: All models listed above are viable.
 - **Chinese**: Qwen3-TTS series. Kokoro supports Chinese but produces lower quality output compared to Qwen3-TTS.
 - **English**: Kokoro-82M has the smallest footprint and lowest latency.
 - **Multilingual**: Chatterbox covers 16 languages.
 
-### Language Codes
+### Language Codes (Kokoro)
 
-For Kokoro and Qwen3-TTS:
+`langCode` is Kokoro-specific. Qwen3-TTS auto-detects language from input text. Other models ignore this field.
+
+When `langCode: auto`, detection currently maps only to `a`, `z`, or `j`.
 
 | Code | Language |
 |---|---|
@@ -180,11 +183,14 @@ All fields are optional:
 | `proxyPort` | | Legacy compatibility field. When set, `port` is treated as server port and `proxyPort` as public endpoint port |
 | `workers` | `1` | Uvicorn worker count |
 | `speed` | `1.0` | Speech speed multiplier |
-| `langCode` | `a` | Language code |
+| `langCode` | `auto` | Kokoro-specific language code. Qwen3-TTS auto-detects from text. Other models ignore this field |
 | `refAudio` | | Reference audio path (voice cloning, Base models only) |
 | `refText` | | Transcript of reference audio |
 | `instruct` | | Voice description text (VoiceDesign models only) |
 | `temperature` | `0.7` | Generation temperature |
+| `topP` | `0.95` | Nucleus sampling parameter (`top_p`) |
+| `topK` | `40` | Top-k sampling parameter (`top_k`) |
+| `repetitionPenalty` | `1.0` | Repetition penalty (`repetition_penalty`) |
 | `autoStart` | `true` | Start with OpenClaw |
 | `healthCheckIntervalMs` | `30000` | Health check interval in ms |
 | `restartOnCrash` | `true` | Auto-restart on crash |
@@ -194,12 +200,13 @@ All fields are optional:
 
 ```text
 OpenClaw tts() -> proxy (:port, default 19280) -> mlx_audio.server (:internal, default 19281) -> Apple Silicon GPU
-                 ^ injects model, lang_code, speed
+                 ^ injects model, lang_code, speed, temperature, top_p, top_k, repetition_penalty, response_format=mp3
 ```
 
 OpenClaw's TTS client uses the OpenAI `/v1/audio/speech` API. The additional parameters required by mlx-audio (full model ID, language code, etc.) are not part of the OpenAI API specification.
 
-The proxy intercepts requests, injects configured parameters, and forwards them to the mlx-audio server. No changes to OpenClaw are required; the proxy presents itself as a standard OpenAI TTS endpoint.
+The proxy intercepts requests, injects configured parameters (`model`, `lang_code`, `speed`, `temperature`, `top_p`, `top_k`, `repetition_penalty`), forces `response_format: "mp3"`, and forwards them to the mlx-audio server. No changes to OpenClaw are required, the proxy presents itself as a standard OpenAI TTS endpoint.
+For `POST /v1/audio/speech`, request bodies larger than 1 MB are rejected with HTTP 413.
 If the downstream client disconnects before completion, the proxy cancels the upstream request immediately.
 
 The plugin also manages the server lifecycle:

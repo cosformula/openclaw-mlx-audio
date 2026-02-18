@@ -55,13 +55,12 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
 }
 ```
 
-默认配置使用 Kokoro-82M，美式英语。如需中文，设置 `model` 和 `langCode`：
+默认配置使用 Kokoro-82M，`langCode` 默认为 `auto`（Kokoro 自动语言检测）。如需中文并使用 Qwen3-TTS，设置 `model`：
 
 ```json
 {
   "config": {
     "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
-    "langCode": "z",
     "workers": 1
   }
 }
@@ -134,15 +133,19 @@ mlx-audio 还支持 Soprano、Spark-TTS、OuteTTS、CSM、Dia 等模型，完整
 | Qwen3-TTS-1.7B-VoiceDesign | 4.2 GB | ~3.8 GB |
 | Chatterbox | ~3 GB | ~3.5 GB |
 
+对于 Chatterbox，运行时建议按约 3.5 GB 内存（1 worker）规划。
+
 - **8 GB Mac**：Kokoro-82M 或 Qwen3-TTS-0.6B-Base，`workers` 设为 1。1.7B 及以上的模型会因内存不足被系统终止。
 - **16 GB 及以上**：所有模型均可运行。
 - **中文**：Qwen3-TTS 系列。Kokoro 支持中文但合成质量不如 Qwen3-TTS。
 - **英语**：Kokoro-82M 体积最小，延迟最低。
 - **多语言**：Chatterbox 覆盖 16 种语言。
 
-### 语言代码
+### 语言代码（仅 Kokoro）
 
-Kokoro 和 Qwen3-TTS 使用以下语言代码：
+`langCode` 仅对 Kokoro 生效。Qwen3-TTS 会根据文本自动识别语言，其他模型会忽略该字段。
+
+当 `langCode: auto` 时，当前只会识别为 `a`、`z`、`j`。
 
 | 代码 | 语言 |
 |---|---|
@@ -180,11 +183,14 @@ Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通�
 | `proxyPort` | | 兼容旧配置字段。设置后按旧语义运行，即 `port` 作为 server 端口，`proxyPort` 作为对外端口 |
 | `workers` | `1` | Uvicorn worker 数 |
 | `speed` | `1.0` | 语速倍率 |
-| `langCode` | `a` | 语言代码 |
+| `langCode` | `auto` | Kokoro 专用语言代码。Qwen3-TTS 根据文本自动识别，其他模型忽略该字段 |
 | `refAudio` | | 参考音频路径（声音克隆，仅 Base 模型） |
 | `refText` | | 参考音频对应文字 |
 | `instruct` | | 音色描述文本（仅 VoiceDesign 模型） |
 | `temperature` | `0.7` | 生成温度 |
+| `topP` | `0.95` | Nucleus sampling 参数（`top_p`） |
+| `topK` | `40` | Top-k sampling 参数（`top_k`） |
+| `repetitionPenalty` | `1.0` | 重复惩罚参数（`repetition_penalty`） |
 | `autoStart` | `true` | 随 OpenClaw 自动启动 |
 | `healthCheckIntervalMs` | `30000` | 健康检查间隔（毫秒） |
 | `restartOnCrash` | `true` | 崩溃后自动重启 |
@@ -194,12 +200,13 @@ Qwen3-TTS Base 通过参考音频（`refAudio`）克隆音色。VoiceDesign 通�
 
 ```text
 OpenClaw tts() -> 代理 (:port，默认 19280) -> mlx_audio.server (:内部端口，默认 19281) -> Apple Silicon GPU
-                 ^ 注入 model、lang_code、speed
+                 ^ 注入 model、lang_code、speed、temperature、top_p、top_k、repetition_penalty、response_format=mp3
 ```
 
 OpenClaw 的 TTS 客户端使用 OpenAI `/v1/audio/speech` API。mlx-audio 需要的额外参数（完整模型 ID、语言代码等）不在 OpenAI API 规范中。
 
-代理拦截请求，注入配置参数后转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
+代理拦截请求，注入配置参数（`model`、`lang_code`、`speed`、`temperature`、`top_p`、`top_k`、`repetition_penalty`），并强制 `response_format: "mp3"` 后转发至 mlx-audio 服务。OpenClaw 侧无需改动，代理对其表现为标准 OpenAI TTS 端点。
+对于 `POST /v1/audio/speech`，请求体超过 1 MB 时返回 HTTP 413。
 如果下游客户端在响应完成前断开，代理会立即取消上游请求。
 
 插件同时管理服务生命周期：

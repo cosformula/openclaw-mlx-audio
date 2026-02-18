@@ -3,7 +3,7 @@ name: mlx-audio
 description: "Local TTS on Apple Silicon via mlx-audio. Use when the user asks to generate speech, read text aloud, or manage local TTS settings. Requires the mlx-audio OpenClaw plugin to be installed and enabled."
 ---
 
-# MLX Audio — Local TTS
+# MLX Audio - Local TTS
 
 Generate speech locally on Apple Silicon using mlx-audio. No API key, no cloud dependency.
 
@@ -29,7 +29,7 @@ Returns path to generated audio file. `outputPath` is restricted to `/tmp` or `~
 }
 ```
 
-Returns server status, loaded model, uptime, and config.
+Returns server status, loaded model, server `startedAt` timestamp, and config.
 Also includes startup phase and approximate model cache download progress when warming up.
 
 ## Commands
@@ -37,7 +37,7 @@ Also includes startup phase and approximate model cache download progress when w
 | Command | Description |
 |---|---|
 | `/mlx-tts status` | Server status, startup phase, and approximate model cache progress |
-| `/mlx-tts test <text>` | Generate and send a test audio |
+| `/mlx-tts test <text>` | Run a test generation, returns text with file path and size |
 | `/mlx-tts reload` | Reload plugin config without restarting the OpenClaw gateway |
 
 ## Models
@@ -61,6 +61,9 @@ Also includes startup phase and approximate model cache download progress when w
 - `proxyPort` is a legacy compatibility field. When set, the plugin uses legacy dual-port semantics.
 - First generation may be slower due to model warmup.
 - The server runs as a background subprocess and auto-restarts on crash.
+- Proxy injects `model`, `lang_code`, `speed`, `temperature`, `top_p`, `top_k`, `repetition_penalty`, and forces `response_format=mp3` for speech requests.
+- `langCode` is Kokoro-specific. Qwen3-TTS auto-detects from text. Other models ignore this field.
+- `/v1/audio/speech` request bodies larger than 1 MB are rejected with HTTP 413.
 - Proxy requests are canceled upstream when the downstream client disconnects before completion.
 - Generated audio is streamed to disk, and payloads larger than 64 MB are rejected to avoid memory spikes.
 - Output path safety checks use async filesystem operations and still reject symbolic-link path segments.

@@ -28,7 +28,7 @@ OpenClaw (provider: openai)
   -> mp3 stream response
 ```
 
-Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`、`ref_audio`），并在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。若下游客户端在响应完成前断开，proxy 会立即取消上游请求。若启动阶段超时，proxy 返回的 503 详情会包含启动阶段和模型缓存近似下载进度。
+Proxy 在请求转发前注入配置参数（`model`、`lang_code`、`speed`、`temperature`、`top_p`、`top_k`、`repetition_penalty`，以及可选的 `ref_audio`、`ref_text`、`instruct`），并强制 `response_format=mp3`。`POST /v1/audio/speech` 请求体超过 1 MB 时返回 413。proxy 在 `/v1/audio/speech` 与 `GET /v1/models` 路径前确保上游服务可用。若下游客户端在响应完成前断开，proxy 会立即取消上游请求。若启动阶段超时，proxy 返回的 503 详情会包含启动阶段和模型缓存近似下载进度。
 
 ## 组件职责
 
@@ -82,7 +82,7 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
           "model": "mlx-community/Kokoro-82M-bf16",
           "pythonEnvMode": "managed",
           "pythonExecutable": "/opt/homebrew/bin/python3.12",
-          "langCode": "a",
+          "langCode": "auto",
           "speed": 1.0,
           "refAudio": "/path/to/reference.wav",
           "refText": "Reference transcript",
@@ -112,8 +112,8 @@ Proxy 在请求转发前注入配置参数（如 `model`、`lang_code`、`speed`
 
 ## 默认模型选择
 
-默认模型为 `mlx-community/Kokoro-82M-bf16`，默认 `langCode` 为 `a`（美式英语）。
-原因：资源占用最小、冷启动更快，在 8 GB 设备上更稳。中文优先场景可切换到 Qwen3 并设置 `langCode: "z"`。
+默认模型为 `mlx-community/Kokoro-82M-bf16`，默认 `langCode` 为 `auto`。
+`langCode` 仅对 Kokoro 生效，Qwen3-TTS 从文本自动识别语言，其他模型忽略该字段。`auto` 当前只会识别为 `a`、`z`、`j`。中文优先场景可切换到 Qwen3，无需设置 `langCode`。
 
 ## 不在当前范围
 
