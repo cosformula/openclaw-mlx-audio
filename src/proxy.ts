@@ -7,6 +7,11 @@ import { runCommand } from "./run-command.js";
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 
+/** OpenAI TTS voice names that are not understood by local models. */
+const OPENAI_VOICE_NAMES = new Set([
+  "alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse",
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -122,6 +127,12 @@ export class TtsProxy {
         const merged: Record<string, unknown> = { ...parsed, ...injected };
         // Keep original input text
         merged.input = parsed.input;
+        // Strip OpenAI-specific voice names that cause upstream models like
+        // Kokoro to silently fail with empty output. Model-native voice names
+        // (e.g. Kokoro's af_heart, af_bella) are preserved.
+        if (typeof merged.voice === "string" && OPENAI_VOICE_NAMES.has(merged.voice)) {
+          delete merged.voice;
+        }
 
         const upstreamBody = JSON.stringify(merged);
         this.forwardToUpstream(req, upstreamBody, res);
