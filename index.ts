@@ -245,7 +245,7 @@ async function validateExternalPython(pythonExecutable: string, logger: Logger):
   if (missingModules.length > 0) {
     const installCmd =
       `${pythonExecutable} -m pip install mlx-audio uvicorn fastapi python-multipart ` +
-      `'setuptools<81' webrtcvad 'misaki[en]' num2words phonemizer-fork "spacy>=3.8,<3.9" "${SPACY_MODEL_WHEEL_URL}"`;
+      `'setuptools<81' webrtcvad 'misaki[en,zh,ja,ko,vi,he]' num2words phonemizer-fork "spacy>=3.8,<3.9" "${SPACY_MODEL_WHEEL_URL}"`;
     throw new Error(
       `[mlx-audio] External python is missing required modules: ${missingModules.join(", ")}. ` +
       `Install dependencies in that environment, for example:\n${installCmd}`,

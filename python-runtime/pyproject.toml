@@ -9,7 +9,7 @@ dependencies = [
   "python-multipart",
   "setuptools<81",
   "webrtcvad",
-  "misaki[en]",
+  "misaki[en,zh,ja,ko,vi,he]",
   "num2words",
   "phonemizer-fork",
   "spacy>=3.8,<3.9",
