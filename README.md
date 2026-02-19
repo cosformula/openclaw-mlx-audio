@@ -90,7 +90,8 @@ The default configuration uses Kokoro-82M with `langCode: auto` (Kokoro language
   "messages": {
     "tts": {
       "provider": "openai",
-      "openai": { "apiKey": "local" }
+      "openai": { "apiKey": "local" },
+      "timeoutMs": 120000
     }
   }
 }

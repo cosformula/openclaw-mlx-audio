@@ -90,7 +90,8 @@ openclaw plugin install @cosformula/openclaw-mlx-audio
   "messages": {
     "tts": {
       "provider": "openai",
-      "openai": { "apiKey": "local" }
+      "openai": { "apiKey": "local" },
+      "timeoutMs": 120000
     }
   }
 }
